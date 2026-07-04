@@ -141,6 +141,10 @@ pub fn start(config: &Config) -> Result<()> {
         .parent()
         .context("the LaunchAgent plist path has no parent directory")?;
     std::fs::create_dir_all(dir).with_context(|| format!("failed to create {}", dir.display()))?;
+    // Neither target may be a pre-planted symlink: launchd would append the
+    // agent's stdout/stderr through the log path, and we write the plist.
+    crate::runtime_paths::reject_symlink(&plist)?;
+    crate::runtime_paths::reject_symlink(log_path()?.as_path())?;
     // 0644 is fine: the plist holds only the exe path, nothing sensitive.
     std::fs::write(&plist, render_plist(exe, log))
         .with_context(|| format!("failed to write {}", plist.display()))?;
@@ -213,15 +217,33 @@ pub fn uninstall() -> Result<()> {
     Ok(())
 }
 
+/// How much of the log file `sigilo logs` will read, from the end.
+const LOG_READ_CAP: u64 = 1024 * 1024; // 1 MiB
+
 /// Print the last `LOG_TAIL_LINES` lines of the agent log.
 pub fn logs() -> Result<()> {
+    use std::io::{Read, Seek, SeekFrom};
     let path = log_path()?;
-    let contents = std::fs::read_to_string(&path).with_context(|| {
+    // Never print through a swapped-in symlink, and never slurp an unbounded
+    // file — read at most the last LOG_READ_CAP bytes.
+    crate::runtime_paths::reject_symlink(&path)?;
+    let mut file = std::fs::File::open(&path).with_context(|| {
         format!(
             "no log file at {} — has the agent been started with `sigilo start`?",
             path.display()
         )
     })?;
+    let len = file
+        .metadata()
+        .context("failed to stat the log file")?
+        .len();
+    if len > LOG_READ_CAP {
+        file.seek(SeekFrom::End(-(LOG_READ_CAP as i64)))
+            .context("failed to seek in the log file")?;
+    }
+    let mut contents = String::new();
+    file.read_to_string(&mut contents)
+        .context("failed to read the log file")?;
     for line in tail(&contents, LOG_TAIL_LINES) {
         println!("{line}");
     }

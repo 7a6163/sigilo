@@ -7,6 +7,18 @@ pub(crate) fn uid() -> u32 {
     unsafe { libc::getuid() }
 }
 
+/// Refuse to write through a pre-planted symlink (or any non-regular file)
+/// at `path`. A missing path is fine — the caller is about to create it.
+pub(crate) fn reject_symlink(path: &std::path::Path) -> Result<()> {
+    match std::fs::symlink_metadata(path) {
+        Ok(meta) if !meta.is_file() => bail!(
+            "refusing to use {}: not a regular file (pre-planted symlink?)",
+            path.display()
+        ),
+        _ => Ok(()),
+    }
+}
+
 /// A per-user, 0700 runtime directory that holds the agent socket.
 ///
 /// Uses `$XDG_RUNTIME_DIR` (already 0700 and owned by the user) when available;

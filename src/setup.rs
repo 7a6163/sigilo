@@ -181,6 +181,21 @@ pub async fn run() -> Result<()> {
         .map(|i| items[i].0)
         .collect();
 
+    // Keychain stores happen BEFORE the config write: a mid-loop failure must
+    // not leave a config on disk that points at keychain entries that were
+    // never stored. (The reverse leftover — entries stored but no config —
+    // is harmless and overwritten by the next setup run.)
+    if credentials == CredentialSource::Keychain {
+        for (account, value) in [
+            (keychain::VW_CLIENT_ID, client_id.as_str()),
+            (keychain::VW_CLIENT_SECRET, client_secret.as_str()),
+            (keychain::VW_MASTER_PASSWORD, master_password.as_str()),
+        ] {
+            keychain::delete(account);
+            keychain::store(account, value)?;
+        }
+    }
+
     let path = config_path()?;
     write_config_file(
         &path,
@@ -190,14 +205,6 @@ pub async fn run() -> Result<()> {
 
     match credentials {
         CredentialSource::Keychain => {
-            for (account, value) in [
-                (keychain::VW_CLIENT_ID, client_id.as_str()),
-                (keychain::VW_CLIENT_SECRET, client_secret.as_str()),
-                (keychain::VW_MASTER_PASSWORD, master_password.as_str()),
-            ] {
-                keychain::delete(account);
-                keychain::store(account, value)?;
-            }
             println!("\nStored the credentials in the macOS Keychain (service \"sigilo\").");
             println!("Every agent read of them is gated by a Touch ID prompt; no env vars needed.");
         }
@@ -487,6 +494,7 @@ fn config_path() -> Result<PathBuf> {
 /// y/N confirmation before being overwritten.
 fn write_config_file(path: &std::path::Path, contents: &str) -> Result<()> {
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    crate::runtime_paths::reject_symlink(path)?;
     if path.exists() {
         println!("Config file {} already exists.", path.display());
         let answer = prompt("Overwrite it? [y/N]: ")?;

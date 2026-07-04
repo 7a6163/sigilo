@@ -1,0 +1,32 @@
+# sigilo configuration — copy to ~/.config/sigilo/config.yaml and chmod 0600.
+# (Vaultwarden backend: `sigilo setup` writes this file for you.)
+# The access token itself lives ONLY in the env var named below, never here.
+
+# Secret backend: bws (default, Bitwarden Secrets Manager) | vaultwarden.
+# backend: bws
+access_token_env: BWS_ACCESS_TOKEN
+
+# UUIDs of the secrets, each holding one OpenSSH private key
+# (BWS secret UUIDs, or Vaultwarden cipher UUIDs when backend: vaultwarden).
+secret_ids:
+  - 00000000-0000-0000-0000-000000000000
+
+# Optional. Cloud: bitwarden.com | bitwarden.eu. Or a self-hosted host.
+# server_endpoint: bitwarden.eu
+
+# Vaultwarden backend (backend: vaultwarden): SSH-key vault items (type 5)
+# from a DEDICATED account's personal vault (org-owned items are rejected).
+# The server must run with EXPERIMENTAL_CLIENT_FEATURE_FLAGS=ssh-key-vault-item
+# to create such items, and the keys must be in OpenSSH private key format.
+# Credentials (personal API key + master password) live ONLY in the env vars
+# named below.
+# vaultwarden:
+#   server_url: https://vault.example.com   # full base URL; serves /identity and /api
+#   email: sigilo@example.com
+#   client_id_env: SIGILO_VW_CLIENT_ID              # holds user.<uuid>
+#   client_secret_env: SIGILO_VW_CLIENT_SECRET
+#   master_password_env: SIGILO_VW_MASTER_PASSWORD
+
+authorization:
+  mode: per_use        # per_use = biometric prompt every signature | grace = cache approval
+  grace_seconds: 60    # only used when mode = grace

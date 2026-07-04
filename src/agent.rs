@@ -1,0 +1,450 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::Duration;
+
+use anyhow::{bail, Context as _, Result};
+use signature::Signer as _;
+use ssh_agent_lib::agent::{listen, Session};
+use ssh_agent_lib::error::AgentError;
+use ssh_agent_lib::proto::{Identity, SignRequest};
+use ssh_key::{Algorithm, PrivateKey, Signature};
+use tokio::net::{UnixListener, UnixStream};
+use uuid::Uuid;
+
+use crate::authorizer::{AuthContext, Authorizer, Biometric, Grace};
+use crate::config::{AuthMode, Backend, Config};
+use crate::runtime_paths;
+use crate::secret_source::{BwsRest, SecretFetcher};
+use crate::vaultwarden::VaultwardenFetcher;
+
+struct LoadedKey {
+    key: PrivateKey,
+    comment: String,
+}
+
+/// Shared agent state: lazy in-memory key cache plus the two injected traits.
+/// Private keys live only in this struct — never on disk, in logs, or errors.
+struct KeyService {
+    secret_ids: Vec<Uuid>,
+    fetcher: Box<dyn SecretFetcher>,
+    authorizer: Box<dyn Authorizer>,
+    keys: tokio::sync::Mutex<HashMap<Uuid, LoadedKey>>,
+}
+
+impl KeyService {
+    fn new(
+        secret_ids: Vec<Uuid>,
+        fetcher: Box<dyn SecretFetcher>,
+        authorizer: Box<dyn Authorizer>,
+    ) -> Self {
+        Self {
+            secret_ids,
+            fetcher,
+            authorizer,
+            keys: tokio::sync::Mutex::new(HashMap::new()),
+        }
+    }
+
+    async fn load_one(&self, id: Uuid) -> Result<LoadedKey> {
+        let secret = self.fetcher.get(id).await?;
+        let key = PrivateKey::from_openssh(&secret.openssh_private_key)
+            .context("secret value is not an OpenSSH private key")?;
+        if key.algorithm() != Algorithm::Ed25519 {
+            bail!(
+                "secret \"{}\" holds a {} key — sigilo serves Ed25519 keys only",
+                secret.name,
+                key.algorithm()
+            );
+        }
+        let comment = if key.comment().is_empty() {
+            secret.name
+        } else {
+            key.comment().to_string()
+        };
+        Ok(LoadedKey { key, comment })
+    }
+
+    /// Lazily fetch any not-yet-loaded secrets. A failure for one id is
+    /// reported to stderr (no secret material in the message) and skipped, so
+    /// it never poisons the other keys.
+    // ponytail: failed ids are refetched on every request; cache permanent
+    // failures (e.g. non-Ed25519) if the extra BWS round-trips ever matter.
+    async fn loaded_keys(&self) -> tokio::sync::MutexGuard<'_, HashMap<Uuid, LoadedKey>> {
+        let mut keys = self.keys.lock().await;
+        for id in &self.secret_ids {
+            if keys.contains_key(id) {
+                continue;
+            }
+            match self.load_one(*id).await {
+                Ok(loaded) => {
+                    keys.insert(*id, loaded);
+                }
+                Err(e) => eprintln!("sigilo: skipping secret {id}: {e:#}"),
+            }
+        }
+        keys
+    }
+
+    /// Public keys + comments only; no authorization prompt (matches
+    /// 1Password's agent behavior — listing is not signing).
+    async fn identities(&self) -> Vec<Identity> {
+        self.loaded_keys()
+            .await
+            .values()
+            .map(|k| Identity {
+                pubkey: k.key.public_key().key_data().clone(),
+                comment: k.comment.clone(),
+            })
+            .collect()
+    }
+
+    async fn sign(&self, request: SignRequest) -> Result<Signature, AgentError> {
+        // Clone the key out and drop the lock so a pending Touch ID prompt
+        // doesn't block identity listing from other clients.
+        let (key, comment) = {
+            let keys = self.loaded_keys().await;
+            let entry = keys
+                .values()
+                .find(|k| *k.key.public_key().key_data() == request.pubkey)
+                .ok_or(AgentError::Failure)?;
+            (entry.key.clone(), entry.comment.clone())
+        };
+
+        // INVARIANT: every sign passes through the Authorizer before the key
+        // is used — this gate is sigilo's whole point.
+        let ctx = AuthContext {
+            key_comment: &comment,
+            data_len: request.data.len(),
+        };
+        let approved = self
+            .authorizer
+            .approve(&ctx)
+            .await
+            .map_err(|e| AgentError::Other(e.into()))?;
+        if !approved {
+            return Err(AgentError::Failure); // SSH_AGENT_FAILURE; key untouched
+        }
+
+        key.try_sign(&request.data).map_err(AgentError::other)
+    }
+}
+
+/// One session per client connection; all sessions share the `KeyService`.
+#[derive(Clone)]
+struct SigiloSession(Arc<KeyService>);
+
+#[ssh_agent_lib::async_trait]
+impl Session for SigiloSession {
+    async fn request_identities(&mut self) -> Result<Vec<Identity>, AgentError> {
+        Ok(self.0.identities().await)
+    }
+
+    async fn sign(&mut self, request: SignRequest) -> Result<Signature, AgentError> {
+        self.0.sign(request).await
+    }
+}
+
+/// Backend selection. Secrets are resolved from the environment here, at use
+/// time, and immediately move into the fetcher (memory only).
+fn build_fetcher(config: &Config) -> Result<Box<dyn SecretFetcher>> {
+    match config.backend {
+        Backend::Bws => {
+            let token = config.access_token()?;
+            Ok(Box::new(
+                BwsRest::new(&token, config.server_endpoint.as_deref())
+                    .context("failed to initialize the Bitwarden Secrets Manager client")?,
+            ))
+        }
+        Backend::Vaultwarden => {
+            // Config::validate() guarantees the section exists; keep a real
+            // error anyway rather than a panic path.
+            let vw = config.vaultwarden.as_ref().context(
+                "backend is vaultwarden but the `vaultwarden` config section is missing",
+            )?;
+            Ok(Box::new(
+                VaultwardenFetcher::new(
+                    &vw.server_url,
+                    &vw.email,
+                    vw.client_id()?,
+                    vw.client_secret()?,
+                    vw.master_password()?,
+                )
+                .context("failed to initialize the Vaultwarden client")?,
+            ))
+        }
+    }
+}
+
+fn build_authorizer(config: &Config) -> Box<dyn Authorizer> {
+    match config.authorization.mode {
+        AuthMode::PerUse => Box::new(Biometric),
+        AuthMode::Grace => Box::new(Grace::new(
+            Box::new(Biometric),
+            Duration::from_secs(config.authorization.grace_seconds),
+        )),
+    }
+}
+
+pub async fn run_foreground(config: Config) -> Result<()> {
+    let secret_ids = config
+        .secret_ids
+        .iter()
+        .map(|s| Uuid::parse_str(s).with_context(|| format!("secret id `{s}` is not a UUID")))
+        .collect::<Result<Vec<_>>>()?;
+
+    let service = Arc::new(KeyService::new(
+        secret_ids,
+        build_fetcher(&config)?,
+        build_authorizer(&config),
+    ));
+
+    let socket = runtime_paths::socket_path()?;
+    // Never hijack a live instance: only remove the socket if nothing answers.
+    match UnixStream::connect(&socket).await {
+        Ok(_) => bail!(
+            "another sigilo instance is already listening on {}",
+            socket.display()
+        ),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        // Stale socket (connection refused): the previous instance is gone.
+        Err(_) => match std::fs::remove_file(&socket) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => {
+                return Err(e)
+                    .with_context(|| format!("failed to remove stale socket {}", socket.display()))
+            }
+        },
+    }
+
+    // Tighten umask BEFORE binding so the socket is never briefly accessible
+    // (no bind-then-chmod race). Real access control is the 0700 runtime dir.
+    // SAFETY: umask() only swaps the process file-mode creation mask; it
+    // cannot fail and touches no memory.
+    let old_umask = unsafe { libc::umask(0o077) };
+    let listener = UnixListener::bind(&socket);
+    // SAFETY: same as above; restores the mask captured before bind.
+    unsafe { libc::umask(old_umask) };
+    let listener =
+        listener.with_context(|| format!("failed to bind socket {}", socket.display()))?;
+
+    println!("export SSH_AUTH_SOCK={}", socket.display());
+
+    let result = tokio::select! {
+        r = listen(listener, SigiloSession(service)) => {
+            r.context("agent listener failed")
+        }
+        _ = shutdown_signal() => Ok(()),
+    };
+    // Best-effort cleanup: tolerate an already-gone socket and never let a
+    // cleanup failure mask the listener result.
+    if let Err(e) = std::fs::remove_file(&socket) {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            eprintln!("sigilo: failed to remove socket {}: {e}", socket.display());
+        }
+    }
+    result
+}
+
+async fn shutdown_signal() {
+    use tokio::signal::unix::{signal, SignalKind};
+    let mut term = match signal(SignalKind::terminate()) {
+        Ok(term) => term,
+        Err(e) => {
+            eprintln!("sigilo: cannot install SIGTERM handler: {e}");
+            // Fall back to SIGINT only.
+            let _ = tokio::signal::ctrl_c().await;
+            return;
+        }
+    };
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {}
+        _ = term.recv() => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::secret_source::SecretData;
+    use anyhow::anyhow;
+    use async_trait::async_trait;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// Throwaway key generated for these tests only — never used anywhere real.
+    const TEST_KEY: &str = "-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+QyNTUxOQAAACDzLiayi6fFxhy6OTHA9w+oAiKbABfRS5DtepqY6gK9+wAAAJgd2bS5Hdm0
+uQAAAAtzc2gtZWQyNTUxOQAAACDzLiayi6fFxhy6OTHA9w+oAiKbABfRS5DtepqY6gK9+w
+AAAEC4R1eI6unuJfbJqcJYMV4zNKaxe40b4b8lmlVUXSq0l/MuJrKLp8XGHLo5McD3D6gC
+IpsAF9FLkO16mpjqAr37AAAAEHVuaXQtdGVzdEBzaWdpbG8BAgMEBQ==
+-----END OPENSSH PRIVATE KEY-----
+";
+
+    struct FakeFetcher(HashMap<Uuid, String>);
+
+    #[async_trait]
+    impl SecretFetcher for FakeFetcher {
+        async fn get(&self, id: Uuid) -> Result<SecretData> {
+            self.0
+                .get(&id)
+                .cloned()
+                .map(|k| SecretData {
+                    name: format!("secret-{id}"),
+                    openssh_private_key: k,
+                })
+                .ok_or_else(|| anyhow!("no such secret"))
+        }
+    }
+
+    /// Counts approve() calls; answers with a fixed verdict.
+    struct Counting {
+        allow: bool,
+        calls: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl Authorizer for Counting {
+        async fn approve(&self, _ctx: &AuthContext<'_>) -> Result<bool> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Ok(self.allow)
+        }
+    }
+
+    fn service_with(allow: bool) -> (KeyService, Arc<AtomicUsize>, SignRequest) {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let authorizer = Box::new(Counting {
+            allow,
+            calls: calls.clone(),
+        });
+        let (service, request) = service_with_authorizer(authorizer);
+        (service, calls, request)
+    }
+
+    fn service_with_authorizer(authorizer: Box<dyn Authorizer>) -> (KeyService, SignRequest) {
+        let id = Uuid::from_u128(1);
+        let fetcher = FakeFetcher(HashMap::from([(id, TEST_KEY.to_string())]));
+        let pubkey = PrivateKey::from_openssh(TEST_KEY)
+            .unwrap()
+            .public_key()
+            .key_data()
+            .clone();
+        let request = SignRequest {
+            pubkey,
+            data: b"data-to-sign".to_vec(),
+            flags: 0,
+        };
+        (
+            KeyService::new(vec![id], Box::new(fetcher), authorizer),
+            request,
+        )
+    }
+
+    #[tokio::test]
+    async fn sign_approved_produces_signature() {
+        let (service, calls, request) = service_with(true);
+        let sig = service
+            .sign(request)
+            .await
+            .expect("approved sign must succeed");
+        assert_eq!(sig.algorithm(), Algorithm::Ed25519);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn sign_denied_returns_failure_without_signing() {
+        let (service, calls, request) = service_with(false);
+        let err = service
+            .sign(request)
+            .await
+            .expect_err("denied sign must fail");
+        assert!(
+            matches!(err, AgentError::Failure),
+            "denial must be SSH_AGENT_FAILURE"
+        );
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "authorizer must have been consulted"
+        );
+    }
+
+    #[tokio::test]
+    async fn per_use_prompts_on_every_sign() {
+        let (service, calls, request) = service_with(true);
+        service.sign(request.clone()).await.unwrap();
+        service.sign(request).await.unwrap();
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            2,
+            "per_use must prompt every time"
+        );
+    }
+
+    #[tokio::test]
+    async fn grace_within_window_skips_prompt() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let inner = Box::new(Counting {
+            allow: true,
+            calls: calls.clone(),
+        });
+        let grace = Box::new(Grace::new(inner, Duration::from_secs(3600)));
+        let (service, request) = service_with_authorizer(grace);
+
+        service.sign(request.clone()).await.unwrap();
+        service.sign(request).await.unwrap();
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "second sign inside the window must not prompt"
+        );
+    }
+
+    #[tokio::test]
+    async fn request_identities_lists_keys_without_prompting() {
+        let (service, calls, _request) = service_with(true);
+        let ids = service.identities().await;
+        assert_eq!(ids.len(), 1);
+        assert_eq!(ids[0].comment, "unit-test@sigilo");
+        assert_eq!(calls.load(Ordering::SeqCst), 0, "listing must never prompt");
+    }
+
+    #[tokio::test]
+    async fn one_failing_secret_does_not_poison_others() {
+        let good = Uuid::from_u128(1);
+        let missing = Uuid::from_u128(2);
+        let fetcher = FakeFetcher(HashMap::from([(good, TEST_KEY.to_string())]));
+        let service = KeyService::new(
+            vec![missing, good],
+            Box::new(fetcher),
+            Box::new(crate::authorizer::AlwaysAllow),
+        );
+        let ids = service.identities().await;
+        assert_eq!(
+            ids.len(),
+            1,
+            "the good key must load despite the failing one"
+        );
+    }
+
+    #[tokio::test]
+    async fn sign_with_unknown_key_fails_without_prompting() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let (_, _, request) = service_with(true);
+        // An agent holding no keys cannot match the requested pubkey.
+        let empty = KeyService::new(
+            vec![],
+            Box::new(FakeFetcher(HashMap::new())),
+            Box::new(Counting {
+                allow: true,
+                calls: calls.clone(),
+            }),
+        );
+        let err = empty
+            .sign(request)
+            .await
+            .expect_err("unknown key must fail");
+        assert!(matches!(err, AgentError::Failure));
+        assert_eq!(calls.load(Ordering::SeqCst), 0, "no key match → no prompt");
+    }
+}

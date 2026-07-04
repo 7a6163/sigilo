@@ -152,6 +152,26 @@ sigilo start --fg   # debug: run in the foreground of the current shell
 > `credentials: keychain` (`sigilo setup`), or add an `EnvironmentVariables`
 > dict to `~/Library/LaunchAgents/com.sigilo.agent.plist` yourself.
 
+### Code signing (optional, recommended)
+
+An unsigned binary has no stable code identity, so the macOS keychain
+re-prompts for access every time you rebuild or upgrade sigilo. A free
+self-signed certificate fixes that on your own machine:
+
+1. Keychain Access → Certificate Assistant → **Create a Certificate…**
+   Name: `sigilo-dev`, Identity Type: Self-Signed Root,
+   Certificate Type: **Code Signing**.
+2. Sign after every build:
+
+```sh
+codesign -s sigilo-dev --force target/release/sigilo
+```
+
+Re-run `sigilo start` afterwards so the LaunchAgent picks up the signed
+binary. Distribution-grade signing (Developer ID + notarization, required
+for Gatekeeper and OS-enforced keychain ACLs) needs a paid Apple Developer
+account and is planned packaging work.
+
 ### Git commit signing
 
 ```sh

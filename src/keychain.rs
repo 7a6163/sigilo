@@ -6,7 +6,7 @@
 //! deliberately discarded because `Error::BadEncoding`'s Display embeds the
 //! raw stored bytes, which would leak the secret into a printed error chain.
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 
 const SERVICE: &str = "sigilo";
 

@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-07-06
+
+### Added
+
+- crates.io publish GitHub Action, triggered on `v*` tags: verifies the tag
+  matches `Cargo.toml`, runs the full CI gate, then `cargo publish`.
+- Cargo package metadata (`repository`, `readme`, `keywords`, `categories`)
+  for the crates.io listing.
+- README steps for self-signed code signing so a rebuilt binary keeps a
+  stable code identity for the macOS Keychain.
+
+### Changed
+
+- Bump edition 2021 → 2024 (rust-version already required 1.85.0, which is
+  where 2024 stabilized). Reformatted imports to the new style edition; the
+  two test-only `std::env::set_var`/`remove_var` calls are now wrapped in
+  `unsafe` blocks as 2024 requires.
+
+### Fixed
+
+- Harden `setup`/`daemon` file handling per security review: keychain
+  entries are stored before the config write (no config pointing at entries
+  that don't exist on a mid-store failure), pre-planted symlinks at the
+  config/plist/log paths are rejected, and `sigilo logs` reads at most the
+  last 1 MiB of the log file.
+
 ## [0.1.1] - 2026-07-04
 
 ### Changed

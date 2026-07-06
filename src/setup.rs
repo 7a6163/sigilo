@@ -9,21 +9,21 @@
 //! only for the duration of the wizard and are never echoed, stored, or
 //! embedded in error messages.
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use serde::Deserialize;
 use std::io::Write;
 use std::path::PathBuf;
 use uuid::Uuid;
 
-use crate::config::{CredentialSource, CONFIG_REL};
+use crate::config::{CONFIG_REL, CredentialSource};
 use crate::keychain;
 use crate::secret_source::{
-    http_client, json_capped, json_capped_limit, EncString, SymKey, MAX_SYNC_RESPONSE_BYTES,
+    EncString, MAX_SYNC_RESPONSE_BYTES, SymKey, http_client, json_capped, json_capped_limit,
 };
 use crate::vaultwarden::{
-    derive_master_key, resolve_cipher_key, server_auth_hash, stretch_master_key,
-    validate_server_url, KdfParams, CIPHER_TYPE_SSH_KEY, CLIENT_VERSION, CLIENT_VERSION_HEADER,
-    DEVICE_IDENTIFIER, DEVICE_NAME, DEVICE_TYPE,
+    CIPHER_TYPE_SSH_KEY, CLIENT_VERSION, CLIENT_VERSION_HEADER, DEVICE_IDENTIFIER, DEVICE_NAME,
+    DEVICE_TYPE, KdfParams, derive_master_key, resolve_cipher_key, server_auth_hash,
+    stretch_master_key, validate_server_url,
 };
 
 /// TwoFactorType::Authenticator (TOTP) in vaultwarden's `TwoFactorType`.
@@ -209,7 +209,9 @@ pub async fn run() -> Result<()> {
             println!("Every agent read of them is gated by a Touch ID prompt; no env vars needed.");
         }
         CredentialSource::Env => {
-            println!("\nAdd these to your environment (e.g. ~/.zshenv — keep them out of anything world-readable):\n");
+            println!(
+                "\nAdd these to your environment (e.g. ~/.zshenv — keep them out of anything world-readable):\n"
+            );
             println!("  export SIGILO_VW_CLIENT_ID='{client_id}'");
             println!("  export SIGILO_VW_CLIENT_SECRET='{client_secret}'");
             println!("  export SIGILO_VW_MASTER_PASSWORD='<type your master password here>'");

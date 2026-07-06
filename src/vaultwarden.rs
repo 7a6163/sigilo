@@ -8,10 +8,10 @@
 //! `src/db/models/cipher.rs` and bitwarden `sdk-internal`
 //! `crates/bitwarden-crypto` (kdf.rs, keys/utils.rs, master_key.rs).
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use async_trait::async_trait;
-use base64::engine::general_purpose::STANDARD as B64_PAD;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as B64_PAD;
 use hkdf::Hkdf;
 use hmac::Hmac;
 use serde::Deserialize;
@@ -22,7 +22,7 @@ use uuid::Uuid;
 use crate::authorizer::{AuthContext, Authorizer};
 use crate::keychain;
 use crate::secret_source::{
-    http_client, json_capped, EncString, SecretData, SecretFetcher, SymKey,
+    EncString, SecretData, SecretFetcher, SymKey, http_client, json_capped,
 };
 
 /// Vaultwarden's `login()` rejects `password`/`client_credentials` requests
@@ -562,35 +562,41 @@ mod tests {
         let cheap_mem = ARGON2_MIN_MEMORY_MIB;
         // Iterations.
         assert!(derive_master_key("pw", "a@b.c", &argon(0, cheap_mem, 1)).is_err());
-        assert!(derive_master_key(
-            "pw",
-            "a@b.c",
-            &argon(ARGON2_MAX_ITERATIONS + 1, cheap_mem, 1)
-        )
-        .is_err());
+        assert!(
+            derive_master_key(
+                "pw",
+                "a@b.c",
+                &argon(ARGON2_MAX_ITERATIONS + 1, cheap_mem, 1)
+            )
+            .is_err()
+        );
         // Memory.
         assert!(derive_master_key("pw", "a@b.c", &argon(1, ARGON2_MIN_MEMORY_MIB - 1, 1)).is_err());
         assert!(derive_master_key("pw", "a@b.c", &argon(1, ARGON2_MAX_MEMORY_MIB + 1, 1)).is_err());
         // Parallelism.
         assert!(derive_master_key("pw", "a@b.c", &argon(1, cheap_mem, 0)).is_err());
-        assert!(derive_master_key(
-            "pw",
-            "a@b.c",
-            &argon(1, cheap_mem, ARGON2_MAX_PARALLELISM + 1)
-        )
-        .is_err());
+        assert!(
+            derive_master_key(
+                "pw",
+                "a@b.c",
+                &argon(1, cheap_mem, ARGON2_MAX_PARALLELISM + 1)
+            )
+            .is_err()
+        );
         // Cheap accepted edges (max iterations / max memory acceptance would
         // actually run an expensive derivation, so only the cheap edges run).
-        assert!(derive_master_key(
-            "pw",
-            "a@b.c",
-            &argon(
-                ARGON2_MIN_ITERATIONS,
-                ARGON2_MIN_MEMORY_MIB,
-                ARGON2_MIN_PARALLELISM
+        assert!(
+            derive_master_key(
+                "pw",
+                "a@b.c",
+                &argon(
+                    ARGON2_MIN_ITERATIONS,
+                    ARGON2_MIN_MEMORY_MIB,
+                    ARGON2_MIN_PARALLELISM
+                )
             )
-        )
-        .is_ok());
+            .is_ok()
+        );
         assert!(
             derive_master_key("pw", "a@b.c", &argon(1, cheap_mem, ARGON2_MAX_PARALLELISM)).is_ok()
         );

@@ -1,4 +1,4 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::PathBuf;
 

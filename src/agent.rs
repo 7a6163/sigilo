@@ -2,9 +2,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{bail, Context as _, Result};
+use anyhow::{Context as _, Result, bail};
 use signature::Signer as _;
-use ssh_agent_lib::agent::{listen, Session};
+use ssh_agent_lib::agent::{Session, listen};
 use ssh_agent_lib::error::AgentError;
 use ssh_agent_lib::proto::{Identity, PublicCredential, SignRequest};
 use ssh_key::{Algorithm, PrivateKey, Signature};
@@ -220,8 +220,9 @@ pub async fn run_foreground(config: Config) -> Result<()> {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => {
-                return Err(e)
-                    .with_context(|| format!("failed to remove stale socket {}", socket.display()))
+                return Err(e).with_context(|| {
+                    format!("failed to remove stale socket {}", socket.display())
+                });
             }
         },
     }
@@ -256,7 +257,7 @@ pub async fn run_foreground(config: Config) -> Result<()> {
 }
 
 async fn shutdown_signal() {
-    use tokio::signal::unix::{signal, SignalKind};
+    use tokio::signal::unix::{SignalKind, signal};
     let mut term = match signal(SignalKind::terminate()) {
         Ok(term) => term,
         Err(e) => {

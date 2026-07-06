@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use serde::Deserialize;
 use std::path::PathBuf;
 
@@ -277,12 +277,19 @@ mod tests {
         use std::os::unix::ffi::OsStrExt;
         let name = "SIGILO_TEST_NON_UNICODE_SECRET";
         // Invalid UTF-8 wrapped around a recognizable marker.
-        std::env::set_var(
-            name,
-            std::ffi::OsStr::from_bytes(b"\xffSUPERSECRETVALUE\xfe"),
-        );
+        // SAFETY: test-only, single-threaded `cargo test` process; no other
+        // thread reads/writes the environment concurrently with this call.
+        unsafe {
+            std::env::set_var(
+                name,
+                std::ffi::OsStr::from_bytes(b"\xffSUPERSECRETVALUE\xfe"),
+            );
+        }
         let err = env_var(name).expect_err("non-unicode value must be an error");
-        std::env::remove_var(name);
+        // SAFETY: same as above.
+        unsafe {
+            std::env::remove_var(name);
+        }
         let msg = format!("{err:#}");
         assert!(
             !msg.contains("SUPERSECRETVALUE"),

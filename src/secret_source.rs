@@ -1,9 +1,9 @@
 use aes::cipher::block_padding::Pkcs7;
 use aes::cipher::{BlockDecryptMut, KeyIvInit};
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use async_trait::async_trait;
 use base64::engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig};
-use base64::{alphabet, Engine};
+use base64::{Engine, alphabet};
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
 use serde::Deserialize;
@@ -406,8 +406,7 @@ mod tests {
 
     // Public test fixture from the official SDK's access_token.rs tests —
     // not a real credential.
-    const SDK_TEST_TOKEN: &str =
-        "0.ec2c1d46-6a4b-4751-a310-af9601317f2d.C2IgxjjLF7qSshsbwe8JGcbM075YXw:X8vbvA0bduihIDe/qrzIQQ==";
+    const SDK_TEST_TOKEN: &str = "0.ec2c1d46-6a4b-4751-a310-af9601317f2d.C2IgxjjLF7qSshsbwe8JGcbM075YXw:X8vbvA0bduihIDe/qrzIQQ==";
 
     #[test]
     fn parses_access_token_and_derives_sdk_known_key() {

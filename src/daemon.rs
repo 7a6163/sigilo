@@ -9,7 +9,7 @@
 //! The plist contains only the executable path and the log file path — never
 //! credentials, env values, or config contents.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -297,9 +297,11 @@ mod tests {
 
     #[test]
     fn plist_path_is_under_launch_agents() {
-        assert!(plist_path()
-            .unwrap()
-            .ends_with("Library/LaunchAgents/com.sigilo.agent.plist"));
+        assert!(
+            plist_path()
+                .unwrap()
+                .ends_with("Library/LaunchAgents/com.sigilo.agent.plist")
+        );
     }
 
     #[test]

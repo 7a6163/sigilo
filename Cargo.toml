@@ -5,6 +5,10 @@ edition = "2021"
 rust-version = "1.85.0"
 description = "SSH agent backed by Bitwarden Secrets Manager with per-use biometric authorization"
 license = "MIT"
+repository = "https://github.com/7a6163/sigilo"
+readme = "README.md"
+keywords = ["ssh", "ssh-agent", "bitwarden", "vaultwarden", "touch-id"]
+categories = ["command-line-utilities", "authentication", "cryptography"]
 
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }

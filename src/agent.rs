@@ -51,7 +51,7 @@ impl KeyService {
             .context("secret value is not an OpenSSH private key")?;
         if key.algorithm() != Algorithm::Ed25519 {
             bail!(
-                "secret \"{}\" holds a {} key — sigilo serves Ed25519 keys only",
+                "secret \"{}\" holds a {} key — tapwarden serves Ed25519 keys only",
                 secret.name,
                 key.algorithm()
             );
@@ -79,7 +79,7 @@ impl KeyService {
                 Ok(loaded) => {
                     keys.insert(*id, loaded);
                 }
-                Err(e) => eprintln!("sigilo: skipping secret {id}: {e:#}"),
+                Err(e) => eprintln!("tapwarden: skipping secret {id}: {e:#}"),
             }
         }
         keys
@@ -111,7 +111,7 @@ impl KeyService {
         };
 
         // INVARIANT: every sign passes through the Authorizer before the key
-        // is used — this gate is sigilo's whole point.
+        // is used — this gate is tapwarden's whole point.
         let ctx = AuthContext::Sign {
             key_comment: &comment,
             data_len: request.data.len(),
@@ -131,10 +131,10 @@ impl KeyService {
 
 /// One session per client connection; all sessions share the `KeyService`.
 #[derive(Clone)]
-struct SigiloSession(Arc<KeyService>);
+struct TapwardenSession(Arc<KeyService>);
 
 #[ssh_agent_lib::async_trait]
-impl Session for SigiloSession {
+impl Session for TapwardenSession {
     async fn request_identities(&mut self) -> Result<Vec<Identity>, AgentError> {
         Ok(self.0.identities().await)
     }
@@ -211,7 +211,7 @@ pub async fn run_foreground(config: Config) -> Result<()> {
     // Never hijack a live instance: only remove the socket if nothing answers.
     match UnixStream::connect(&socket).await {
         Ok(_) => bail!(
-            "another sigilo instance is already listening on {}",
+            "another tapwarden instance is already listening on {}",
             socket.display()
         ),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -241,7 +241,7 @@ pub async fn run_foreground(config: Config) -> Result<()> {
     println!("export SSH_AUTH_SOCK={}", socket.display());
 
     let result = tokio::select! {
-        r = listen(listener, SigiloSession(service)) => {
+        r = listen(listener, TapwardenSession(service)) => {
             r.context("agent listener failed")
         }
         _ = shutdown_signal() => Ok(()),
@@ -250,7 +250,7 @@ pub async fn run_foreground(config: Config) -> Result<()> {
     // cleanup failure mask the listener result.
     if let Err(e) = std::fs::remove_file(&socket) {
         if e.kind() != std::io::ErrorKind::NotFound {
-            eprintln!("sigilo: failed to remove socket {}: {e}", socket.display());
+            eprintln!("tapwarden: failed to remove socket {}: {e}", socket.display());
         }
     }
     result
@@ -261,7 +261,7 @@ async fn shutdown_signal() {
     let mut term = match signal(SignalKind::terminate()) {
         Ok(term) => term,
         Err(e) => {
-            eprintln!("sigilo: cannot install SIGTERM handler: {e}");
+            eprintln!("tapwarden: cannot install SIGTERM handler: {e}");
             // Fall back to SIGINT only.
             let _ = tokio::signal::ctrl_c().await;
             return;
@@ -284,10 +284,10 @@ mod tests {
     /// Throwaway key generated for these tests only — never used anywhere real.
     const TEST_KEY: &str = "-----BEGIN OPENSSH PRIVATE KEY-----
 b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
-QyNTUxOQAAACDzLiayi6fFxhy6OTHA9w+oAiKbABfRS5DtepqY6gK9+wAAAJgd2bS5Hdm0
-uQAAAAtzc2gtZWQyNTUxOQAAACDzLiayi6fFxhy6OTHA9w+oAiKbABfRS5DtepqY6gK9+w
-AAAEC4R1eI6unuJfbJqcJYMV4zNKaxe40b4b8lmlVUXSq0l/MuJrKLp8XGHLo5McD3D6gC
-IpsAF9FLkO16mpjqAr37AAAAEHVuaXQtdGVzdEBzaWdpbG8BAgMEBQ==
+QyNTUxOQAAACCchMvXfB6t0MgCDWTEX3BFd3ryJu7qUK+i+YOxqMDgkQAAAJgrZITGK2SE
+xgAAAAtzc2gtZWQyNTUxOQAAACCchMvXfB6t0MgCDWTEX3BFd3ryJu7qUK+i+YOxqMDgkQ
+AAAEAm+GqINSVahnMAQlWg2nq5Hv32qMRXAMb2+tLQm/aQvZyEy9d8Hq3QyAINZMRfcEV3
+evIm7upQr6L5g7GowOCRAAAAE3VuaXQtdGVzdEB0YXB3YXJkZW4BAg==
 -----END OPENSSH PRIVATE KEY-----
 ";
 
@@ -415,7 +415,7 @@ IpsAF9FLkO16mpjqAr37AAAAEHVuaXQtdGVzdEBzaWdpbG8BAgMEBQ==
         let (service, calls, _request) = service_with(true);
         let ids = service.identities().await;
         assert_eq!(ids.len(), 1);
-        assert_eq!(ids[0].comment, "unit-test@sigilo");
+        assert_eq!(ids[0].comment, "unit-test@tapwarden");
         assert_eq!(calls.load(Ordering::SeqCst), 0, "listing must never prompt");
     }
 

@@ -1,11 +1,11 @@
 [package]
-name = "sigilo"
+name = "tapwarden"
 version = "0.1.3"
 edition = "2024"
 rust-version = "1.85.0"
 description = "SSH agent backed by Bitwarden Secrets Manager with per-use biometric authorization"
 license = "MIT"
-repository = "https://github.com/7a6163/sigilo"
+repository = "https://github.com/7a6163/tapwarden"
 readme = "README.md"
 keywords = ["ssh", "ssh-agent", "bitwarden", "vaultwarden", "touch-id"]
 categories = ["command-line-utilities", "authentication", "cryptography"]

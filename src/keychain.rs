@@ -8,7 +8,7 @@
 
 use anyhow::{Result, anyhow};
 
-const SERVICE: &str = "sigilo";
+const SERVICE: &str = "tapwarden";
 
 /// Keychain account names for the three Vaultwarden credentials.
 pub(crate) const VW_CLIENT_ID: &str = "vw_client_id";
@@ -30,13 +30,13 @@ pub(crate) fn read(account: &str) -> Result<String> {
     match entry(account)?.get_password() {
         Ok(value) => Ok(value),
         Err(keyring::Error::NoEntry) => Err(anyhow!(
-            "keychain entry `{account}` not found — run `sigilo setup` to store it"
+            "keychain entry `{account}` not found — run `tapwarden setup` to store it"
         )),
         Err(_) => Err(anyhow!("failed to read `{account}` from the keychain")),
     }
 }
 
-/// Best-effort removal, for re-running `sigilo setup` over existing entries.
+/// Best-effort removal, for re-running `tapwarden setup` over existing entries.
 pub(crate) fn delete(account: &str) {
     if let Ok(entry) = entry(account) {
         let _ = entry.delete_credential();
@@ -58,6 +58,6 @@ mod tests {
         assert_eq!(read(account).expect("read"), "dummy-value");
         delete(account);
         let err = read(account).expect_err("deleted entry must be gone");
-        assert!(err.to_string().contains("sigilo setup"), "{err:#}");
+        assert!(err.to_string().contains("tapwarden setup"), "{err:#}");
     }
 }

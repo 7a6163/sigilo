@@ -36,7 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Harden `setup`/`daemon` file handling per security review: keychain
   entries are stored before the config write (no config pointing at entries
   that don't exist on a mid-store failure), pre-planted symlinks at the
-  config/plist/log paths are rejected, and `sigilo logs` reads at most the
+  config/plist/log paths are rejected, and `tapwarden logs` reads at most the
   last 1 MiB of the log file.
 
 ## [0.1.1] - 2026-07-04
@@ -67,14 +67,14 @@ First working release: a daily-drivable SSH agent.
   serving SSH-key vault items (cipher type 5); PBKDF2 and Argon2id KDFs
   mirrored from the official SDK source and verified against its published
   test vectors.
-- **`sigilo setup`**: interactive wizard — logs in once (TOTP 2FA supported),
+- **`tapwarden setup`**: interactive wizard — logs in once (TOTP 2FA supported),
   obtains the personal API key automatically, lists the account's SSH keys
   for selection, and writes the config.
 - **macOS Keychain credential storage** (`credentials: keychain`, the setup
   default): backend credentials never live in env vars, and **every read is
   gated by its own Touch ID prompt** — a recent signature approval never
   unlocks them. Env-var mode remains available for CI.
-- **LaunchAgent daemon**: `sigilo start` installs a per-user LaunchAgent
+- **LaunchAgent daemon**: `tapwarden start` installs a per-user LaunchAgent
   (auto-start at login, restart on crash); `stop`, `logs`, `uninstall`,
   `socket-path` round out the CLI. A one-line `IdentityAgent` entry in
   `~/.ssh/config` replaces `SSH_AUTH_SOCK` exports.

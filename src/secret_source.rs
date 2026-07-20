@@ -540,16 +540,16 @@ mod tests {
     }
 
     /// Real-BWS integration test. Run explicitly with:
-    /// `BWS_ACCESS_TOKEN=... SIGILO_TEST_SECRET_ID=... cargo test -- --ignored`
+    /// `BWS_ACCESS_TOKEN=... TAPWARDEN_TEST_SECRET_ID=... cargo test -- --ignored`
     #[tokio::test]
-    #[ignore = "hits real Bitwarden Secrets Manager; needs BWS_ACCESS_TOKEN + SIGILO_TEST_SECRET_ID"]
+    #[ignore = "hits real Bitwarden Secrets Manager; needs BWS_ACCESS_TOKEN + TAPWARDEN_TEST_SECRET_ID"]
     async fn fetches_real_secret_from_bws() {
         let token = std::env::var("BWS_ACCESS_TOKEN").expect("BWS_ACCESS_TOKEN not set");
-        let id: Uuid = std::env::var("SIGILO_TEST_SECRET_ID")
-            .expect("SIGILO_TEST_SECRET_ID not set")
+        let id: Uuid = std::env::var("TAPWARDEN_TEST_SECRET_ID")
+            .expect("TAPWARDEN_TEST_SECRET_ID not set")
             .parse()
-            .expect("SIGILO_TEST_SECRET_ID is not a UUID");
-        let endpoint = std::env::var("SIGILO_SERVER_ENDPOINT").ok();
+            .expect("TAPWARDEN_TEST_SECRET_ID is not a UUID");
+        let endpoint = std::env::var("TAPWARDEN_SERVER_ENDPOINT").ok();
         let fetcher = BwsRest::new(&token, endpoint.as_deref()).unwrap();
         let secret = fetcher.get(id).await.unwrap();
         assert!(!secret.name.is_empty());

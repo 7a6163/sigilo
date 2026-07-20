@@ -2,7 +2,7 @@
 //!
 //! The agent runs as a per-user **LaunchAgent** (not a LaunchDaemon — Touch ID
 //! prompts need a GUI session). The process lifecycle belongs entirely to
-//! launchd: sigilo never signals a PID itself, which is how the PLAN §6
+//! launchd: tapwarden never signals a PID itself, which is how the PLAN §6
 //! "verify the process before signalling" rule is satisfied — there is no
 //! direct-PID path at all, and therefore no PID file.
 //!
@@ -16,13 +16,13 @@ use std::process::Command;
 use crate::config::{Backend, Config, CredentialSource};
 use crate::runtime_paths;
 
-const LABEL: &str = "com.sigilo.agent";
+const LABEL: &str = "com.tapwarden.agent";
 const LOG_TAIL_LINES: usize = 50;
 
 /// `stop` when launchd has nothing loaded under our label. Static by design:
 /// launchctl's non-zero exits don't distinguish "not loaded" from much else,
 /// and the message must never carry process output.
-const STOP_NOT_LOADED: &str = "sigilo is not running under launchd (nothing to stop) — if you started it with `sigilo start --fg`, stop it with Ctrl-C in that shell";
+const STOP_NOT_LOADED: &str = "tapwarden is not running under launchd (nothing to stop) — if you started it with `tapwarden start --fg`, stop it with Ctrl-C in that shell";
 
 fn home() -> Result<PathBuf> {
     dirs::home_dir().context("unable to determine home directory")
@@ -37,7 +37,7 @@ fn plist_path() -> Result<PathBuf> {
 /// Logs live in `~/Library/Logs`, not the runtime dir — the runtime dir is
 /// tmpfs-ish and vanishes across reboots.
 fn log_path() -> Result<PathBuf> {
-    Ok(home()?.join("Library/Logs/sigilo.log"))
+    Ok(home()?.join("Library/Logs/tapwarden.log"))
 }
 
 fn gui_domain() -> String {
@@ -62,7 +62,7 @@ fn xml_escape(s: &str) -> String {
 ///
 /// No `EnvironmentVariables` on purpose: launchd never sees the user's shell
 /// env, and credentials must not live in the plist. Env-credential configs
-/// (backend `bws`, or `credentials: env`) need `sigilo start --fg` from a
+/// (backend `bws`, or `credentials: env`) need `tapwarden start --fg` from a
 /// shell that exports them — or a hand-added EnvironmentVariables dict.
 fn render_plist(exe: &str, log: &str) -> String {
     let exe = xml_escape(exe);
@@ -121,16 +121,16 @@ pub fn start(config: &Config) -> Result<()> {
     if uses_env_credentials(config) {
         eprintln!(
             "warning: this config resolves credentials from env vars, which launchd does not \
-             provide — the background agent will fail to fetch keys. Either run `sigilo start \
-             --fg` from a shell that exports them, switch to `credentials: keychain` (`sigilo \
+             provide — the background agent will fail to fetch keys. Either run `tapwarden start \
+             --fg` from a shell that exports them, switch to `credentials: keychain` (`tapwarden \
              setup`), or add an EnvironmentVariables dict to the plist yourself."
         );
     }
 
-    let exe = std::env::current_exe().context("failed to resolve the sigilo executable path")?;
+    let exe = std::env::current_exe().context("failed to resolve the tapwarden executable path")?;
     let exe = exe
         .to_str()
-        .context("the sigilo executable path is not valid UTF-8")?;
+        .context("the tapwarden executable path is not valid UTF-8")?;
     let plist = plist_path()?;
     let log = log_path()?;
     let log = log
@@ -178,14 +178,14 @@ pub fn start(config: &Config) -> Result<()> {
     }
 
     let socket = runtime_paths::socket_path()?;
-    println!("sigilo is running in the background (LaunchAgent {LABEL}, starts at login).");
+    println!("tapwarden is running in the background (LaunchAgent {LABEL}, starts at login).");
     println!("socket: {}", socket.display());
     println!();
     println!("Point SSH at it permanently — add to ~/.ssh/config:");
     println!("  Host *");
     println!("    IdentityAgent {}", socket.display());
     println!();
-    println!("Logs: `sigilo logs` — stop: `sigilo stop` — remove: `sigilo uninstall`");
+    println!("Logs: `tapwarden logs` — stop: `tapwarden stop` — remove: `tapwarden uninstall`");
     Ok(())
 }
 
@@ -196,7 +196,7 @@ pub fn stop() -> Result<()> {
     if !out.status.success() {
         bail!("{STOP_NOT_LOADED}");
     }
-    println!("sigilo stopped.");
+    println!("tapwarden stopped.");
     Ok(())
 }
 
@@ -206,7 +206,7 @@ pub fn uninstall() -> Result<()> {
     let plist = plist_path()?;
     match std::fs::remove_file(&plist) {
         Ok(()) => println!(
-            "sigilo stopped and LaunchAgent removed ({}).",
+            "tapwarden stopped and LaunchAgent removed ({}).",
             plist.display()
         ),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -217,7 +217,7 @@ pub fn uninstall() -> Result<()> {
     Ok(())
 }
 
-/// How much of the log file `sigilo logs` will read, from the end.
+/// How much of the log file `tapwarden logs` will read, from the end.
 const LOG_READ_CAP: u64 = 1024 * 1024; // 1 MiB
 
 /// Print the last `LOG_TAIL_LINES` lines of the agent log.
@@ -229,7 +229,7 @@ pub fn logs() -> Result<()> {
     crate::runtime_paths::reject_symlink(&path)?;
     let mut file = std::fs::File::open(&path).with_context(|| {
         format!(
-            "no log file at {} — has the agent been started with `sigilo start`?",
+            "no log file at {} — has the agent been started with `tapwarden start`?",
             path.display()
         )
     })?;
@@ -264,20 +264,20 @@ mod tests {
     #[test]
     fn plist_escapes_the_exe_path_and_keeps_spaces() {
         let plist = render_plist(
-            "/Users/z a/dev & test/<sigilo>",
-            "/Users/z a/Library/Logs/sigilo.log",
+            "/Users/z a/dev & test/<tapwarden>",
+            "/Users/z a/Library/Logs/tapwarden.log",
         );
         assert!(
-            plist.contains("<string>/Users/z a/dev &amp; test/&lt;sigilo&gt;</string>"),
+            plist.contains("<string>/Users/z a/dev &amp; test/&lt;tapwarden&gt;</string>"),
             "exe path must be XML-escaped with spaces intact:\n{plist}"
         );
-        assert!(plist.contains("<string>/Users/z a/Library/Logs/sigilo.log</string>"));
+        assert!(plist.contains("<string>/Users/z a/Library/Logs/tapwarden.log</string>"));
     }
 
     #[test]
     fn plist_has_label_args_restart_policy_and_no_env() {
-        let plist = render_plist("/usr/local/bin/sigilo", "/tmp/sigilo.log");
-        assert!(plist.contains("<string>com.sigilo.agent</string>"));
+        let plist = render_plist("/usr/local/bin/tapwarden", "/tmp/tapwarden.log");
+        assert!(plist.contains("<string>com.tapwarden.agent</string>"));
         assert!(plist.contains("<string>start</string>"));
         assert!(plist.contains("<string>--fg</string>"));
         assert!(plist.contains("<key>RunAtLoad</key>"));
@@ -292,7 +292,7 @@ mod tests {
 
     #[test]
     fn log_path_is_under_library_logs() {
-        assert!(log_path().unwrap().ends_with("Library/Logs/sigilo.log"));
+        assert!(log_path().unwrap().ends_with("Library/Logs/tapwarden.log"));
     }
 
     #[test]
@@ -300,7 +300,7 @@ mod tests {
         assert!(
             plist_path()
                 .unwrap()
-                .ends_with("Library/LaunchAgents/com.sigilo.agent.plist")
+                .ends_with("Library/LaunchAgents/com.tapwarden.agent.plist")
         );
     }
 

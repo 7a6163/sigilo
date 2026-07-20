@@ -1,7 +1,7 @@
-//! `sigilo setup` — interactive wizard for the Vaultwarden backend. Logs in
+//! `tapwarden setup` — interactive wizard for the Vaultwarden backend. Logs in
 //! with the master password once, obtains the personal API key
 //! (client_id/client_secret) so the user never clicks through the web vault,
-//! lists the account's SSH-key items, and writes `~/.config/sigilo/config.yaml`.
+//! lists the account's SSH-key items, and writes `~/.config/tapwarden/config.yaml`.
 //!
 //! Protocol verified against vaultwarden `src/api/identity.rs` (password
 //! grant, 2FA error shape) and `src/api/core/accounts.rs` (prelogin,
@@ -111,8 +111,8 @@ enum LoginOutcome {
 }
 
 pub async fn run() -> Result<()> {
-    println!("sigilo setup — Vaultwarden backend");
-    println!("Use the DEDICATED account that holds only sigilo's SSH keys.\n");
+    println!("tapwarden setup — Vaultwarden backend");
+    println!("Use the DEDICATED account that holds only tapwarden's SSH keys.\n");
 
     let server_url = {
         let url = prompt("Server URL (https://...): ")?;
@@ -175,7 +175,7 @@ pub async fn run() -> Result<()> {
     for (i, (_, name)) in items.iter().enumerate() {
         println!("  {}. {name}", i + 1);
     }
-    let selection = prompt("Keys sigilo should serve (comma-separated numbers, empty = all): ")?;
+    let selection = prompt("Keys tapwarden should serve (comma-separated numbers, empty = all): ")?;
     let chosen: Vec<Uuid> = select_indices(&selection, items.len())?
         .into_iter()
         .map(|i| items[i].0)
@@ -205,17 +205,17 @@ pub async fn run() -> Result<()> {
 
     match credentials {
         CredentialSource::Keychain => {
-            println!("\nStored the credentials in the macOS Keychain (service \"sigilo\").");
+            println!("\nStored the credentials in the macOS Keychain (service \"tapwarden\").");
             println!("Every agent read of them is gated by a Touch ID prompt; no env vars needed.");
         }
         CredentialSource::Env => {
             println!(
                 "\nAdd these to your environment (e.g. ~/.zshenv — keep them out of anything world-readable):\n"
             );
-            println!("  export SIGILO_VW_CLIENT_ID='{client_id}'");
-            println!("  export SIGILO_VW_CLIENT_SECRET='{client_secret}'");
-            println!("  export SIGILO_VW_MASTER_PASSWORD='<type your master password here>'");
-            println!("\nsigilo never stores or prints the master password; fill it in yourself.");
+            println!("  export TAPWARDEN_VW_CLIENT_ID='{client_id}'");
+            println!("  export TAPWARDEN_VW_CLIENT_SECRET='{client_secret}'");
+            println!("  export TAPWARDEN_VW_MASTER_PASSWORD='<type your master password here>'");
+            println!("\ntapwarden never stores or prints the master password; fill it in yourself.");
         }
     }
     Ok(())
@@ -257,7 +257,7 @@ async fn password_login(
         LoginOutcome::TwoFactorRequired(providers) => {
             if !providers.iter().any(|p| p == TOTP_PROVIDER) {
                 bail!(
-                    "this account requires a two-factor method sigilo setup does not support; \
+                    "this account requires a two-factor method tapwarden setup does not support; \
                      use an account with TOTP (authenticator app) or no 2FA"
                 );
             }
@@ -439,7 +439,7 @@ fn validate_email(email: &str) -> Result<()> {
 
 /// Render the config. No secrets in either variant: `keychain` points at the
 /// macOS Keychain entries, `env` implies only env var *names* (the defaults
-/// SIGILO_VW_* are baked into the config schema).
+/// TAPWARDEN_VW_* are baked into the config schema).
 fn render_config(
     server_url: &str,
     email: &str,
@@ -448,13 +448,13 @@ fn render_config(
 ) -> Result<String> {
     let (comment, source) = match credentials {
         CredentialSource::Keychain => (
-            "# Written by `sigilo setup`. Credentials live ONLY in the macOS Keychain\n\
-             # (service \"sigilo\"); every read is gated by a Touch ID prompt.\n",
+            "# Written by `tapwarden setup`. Credentials live ONLY in the macOS Keychain\n\
+             # (service \"tapwarden\"); every read is gated by a Touch ID prompt.\n",
             "keychain",
         ),
         CredentialSource::Env => (
-            "# Written by `sigilo setup`. Credentials live ONLY in the env vars\n\
-             # SIGILO_VW_CLIENT_ID / SIGILO_VW_CLIENT_SECRET / SIGILO_VW_MASTER_PASSWORD.\n",
+            "# Written by `tapwarden setup`. Credentials live ONLY in the env vars\n\
+             # TAPWARDEN_VW_CLIENT_ID / TAPWARDEN_VW_CLIENT_SECRET / TAPWARDEN_VW_MASTER_PASSWORD.\n",
             "env",
         ),
     };
@@ -619,8 +619,8 @@ mod tests {
         let resp: ProfileResponse = serde_json::from_value(json!({
             "_status": 0,
             "id": "b9b64ee8-0000-0000-0000-000000000000",
-            "name": "sigilo",
-            "email": "sigilo@example.com",
+            "name": "tapwarden",
+            "email": "tapwarden@example.com",
             "object": "profile"
         }))
         .unwrap();
@@ -696,7 +696,7 @@ mod tests {
         for credentials in [CredentialSource::Keychain, CredentialSource::Env] {
             let yaml = render_config(
                 "https://vault.example.com",
-                "sigilo@example.com",
+                "tapwarden@example.com",
                 &ids,
                 credentials,
             )
@@ -710,8 +710,8 @@ mod tests {
             let vw = cfg.vaultwarden.expect("vaultwarden section");
             assert_eq!(vw.credentials, credentials);
             assert_eq!(vw.server_url, "https://vault.example.com");
-            assert_eq!(vw.email, "sigilo@example.com");
-            assert_eq!(vw.client_id_env, "SIGILO_VW_CLIENT_ID");
+            assert_eq!(vw.email, "tapwarden@example.com");
+            assert_eq!(vw.client_id_env, "TAPWARDEN_VW_CLIENT_ID");
             assert_eq!(
                 cfg.secret_ids,
                 vec![
@@ -729,6 +729,6 @@ mod tests {
         assert!(yaml_quoted("has\nnewline").is_err());
         assert!(validate_email("no-at-sign").is_err());
         assert!(validate_email("spaced @example.com").is_err());
-        assert!(validate_email("sigilo@example.com").is_ok());
+        assert!(validate_email("tapwarden@example.com").is_ok());
     }
 }

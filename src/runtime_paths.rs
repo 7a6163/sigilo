@@ -27,14 +27,14 @@ pub(crate) fn reject_symlink(path: &std::path::Path) -> Result<()> {
 /// (portability: some BSDs historically ignore them).
 pub fn runtime_dir() -> Result<PathBuf> {
     let dir = match std::env::var_os("XDG_RUNTIME_DIR") {
-        Some(base) => PathBuf::from(base).join("sigilo"),
-        None => std::env::temp_dir().join(format!("sigilo-{}", uid())),
+        Some(base) => PathBuf::from(base).join("tapwarden"),
+        None => std::env::temp_dir().join(format!("tapwarden-{}", uid())),
     };
     std::fs::create_dir_all(&dir)
         .with_context(|| format!("failed to create runtime dir {}", dir.display()))?;
     // Reject a pre-planted path BEFORE touching permissions: chmod(2) follows
     // symlinks, so validating afterwards would first chmod an attacker-chosen
-    // target (e.g. `ln -s ~victim/dir /tmp/sigilo-<uid>`). symlink_metadata
+    // target (e.g. `ln -s ~victim/dir /tmp/tapwarden-<uid>`). symlink_metadata
     // catches symlinks; a swap between this stat and the chmod would require
     // deleting a dir we own, which the sticky bit on shared temp dirs prevents.
     let meta = std::fs::symlink_metadata(&dir)

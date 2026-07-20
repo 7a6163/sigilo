@@ -28,9 +28,9 @@ use crate::secret_source::{
 /// Vaultwarden's `login()` rejects `password`/`client_credentials` requests
 /// without deviceIdentifier/deviceName/deviceType. A stable identifier avoids
 /// creating a new device row (and a "new device logged in" mail) on every
-/// agent start; `sigilo setup` reuses it for the same reason.
+/// agent start; `tapwarden setup` reuses it for the same reason.
 pub(crate) const DEVICE_IDENTIFIER: &str = "6c11ea63-9b34-4c73-b9ca-8f8b74dd6d10";
-pub(crate) const DEVICE_NAME: &str = "sigilo";
+pub(crate) const DEVICE_NAME: &str = "tapwarden";
 /// 14 = "Unknown Browser" — the value vaultwarden itself falls back to.
 pub(crate) const DEVICE_TYPE: &str = "14";
 /// Vaultwarden hides SSH-key ciphers (type 5) from clients that do not declare
@@ -144,7 +144,7 @@ pub(crate) fn server_auth_hash(master_key: &[u8; 32], password: &str) -> String 
 }
 
 /// `GET /api/ciphers/{id}` response, camelCase per vaultwarden's
-/// `Cipher::to_json`. Only the fields sigilo needs.
+/// `Cipher::to_json`. Only the fields tapwarden needs.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CipherResponse {
@@ -268,7 +268,7 @@ fn is_localhost_http(url: &str) -> bool {
 }
 
 /// Cleartext http would put credentials and decrypted private keys on the
-/// wire; only a loopback host may skip TLS. Shared with `sigilo setup`.
+/// wire; only a loopback host may skip TLS. Shared with `tapwarden setup`.
 pub(crate) fn validate_server_url(url: &str) -> Result<()> {
     if !url.starts_with("https://") && !is_localhost_http(url) {
         bail!(
@@ -778,7 +778,7 @@ mod tests {
         ] {
             let err = VaultwardenFetcher::new(
                 server,
-                "sigilo@example.com",
+                "tapwarden@example.com",
                 env_creds(&client_id, secret_marker),
                 Arc::new(crate::authorizer::AlwaysAllow),
             )
@@ -837,23 +837,23 @@ mod tests {
     }
 
     /// Real-Vaultwarden integration test. Run explicitly with:
-    /// `SIGILO_VW_SERVER=... SIGILO_VW_EMAIL=... SIGILO_VW_CLIENT_ID=...
-    ///  SIGILO_VW_CLIENT_SECRET=... SIGILO_VW_MASTER_PASSWORD=...
-    ///  SIGILO_TEST_CIPHER_ID=... cargo test -- --ignored`
+    /// `TAPWARDEN_VW_SERVER=... TAPWARDEN_VW_EMAIL=... TAPWARDEN_VW_CLIENT_ID=...
+    ///  TAPWARDEN_VW_CLIENT_SECRET=... TAPWARDEN_VW_MASTER_PASSWORD=...
+    ///  TAPWARDEN_TEST_CIPHER_ID=... cargo test -- --ignored`
     #[tokio::test]
-    #[ignore = "hits a real Vaultwarden server; needs SIGILO_VW_* + SIGILO_TEST_CIPHER_ID"]
+    #[ignore = "hits a real Vaultwarden server; needs TAPWARDEN_VW_* + TAPWARDEN_TEST_CIPHER_ID"]
     async fn fetches_real_sshkey_from_vaultwarden() {
         let var = |name: &str| std::env::var(name).unwrap_or_else(|_| panic!("{name} not set"));
-        let id: Uuid = var("SIGILO_TEST_CIPHER_ID")
+        let id: Uuid = var("TAPWARDEN_TEST_CIPHER_ID")
             .parse()
-            .expect("SIGILO_TEST_CIPHER_ID is not a UUID");
+            .expect("TAPWARDEN_TEST_CIPHER_ID is not a UUID");
         let fetcher = VaultwardenFetcher::new(
-            &var("SIGILO_VW_SERVER"),
-            &var("SIGILO_VW_EMAIL"),
+            &var("TAPWARDEN_VW_SERVER"),
+            &var("TAPWARDEN_VW_EMAIL"),
             VwCredentials::Env {
-                client_id: var("SIGILO_VW_CLIENT_ID"),
-                client_secret: var("SIGILO_VW_CLIENT_SECRET"),
-                master_password: var("SIGILO_VW_MASTER_PASSWORD"),
+                client_id: var("TAPWARDEN_VW_CLIENT_ID"),
+                client_secret: var("TAPWARDEN_VW_CLIENT_SECRET"),
+                master_password: var("TAPWARDEN_VW_MASTER_PASSWORD"),
             },
             Arc::new(crate::authorizer::AlwaysAllow),
         )

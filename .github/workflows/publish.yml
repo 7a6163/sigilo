@@ -70,8 +70,8 @@ jobs:
       - name: Package binary + checksum
         run: |
           mkdir -p dist
-          name="sigilo-${GITHUB_REF_NAME}-aarch64-apple-darwin"
-          cp target/release/sigilo "dist/$name"
+          name="tapwarden-${GITHUB_REF_NAME}-aarch64-apple-darwin"
+          cp target/release/tapwarden "dist/$name"
           (cd dist && shasum -a 256 "$name" > "$name.sha256")
       - name: Extract changelog section for this version
         id: changelog

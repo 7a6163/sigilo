@@ -2,7 +2,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use serde::Deserialize;
 use std::path::PathBuf;
 
-pub const CONFIG_REL: &str = ".config/sigilo/config.yaml";
+pub const CONFIG_REL: &str = ".config/tapwarden/config.yaml";
 
 #[derive(Debug, Deserialize)]
 pub struct Config {
@@ -120,13 +120,13 @@ fn default_token_env() -> String {
     "BWS_ACCESS_TOKEN".to_string()
 }
 fn default_vw_client_id_env() -> String {
-    "SIGILO_VW_CLIENT_ID".to_string()
+    "TAPWARDEN_VW_CLIENT_ID".to_string()
 }
 fn default_vw_client_secret_env() -> String {
-    "SIGILO_VW_CLIENT_SECRET".to_string()
+    "TAPWARDEN_VW_CLIENT_SECRET".to_string()
 }
 fn default_vw_master_password_env() -> String {
-    "SIGILO_VW_MASTER_PASSWORD".to_string()
+    "TAPWARDEN_VW_MASTER_PASSWORD".to_string()
 }
 fn default_grace() -> u64 {
     60
@@ -152,8 +152,8 @@ impl Config {
             serde_yaml::from_str(&s)
                 .with_context(|| format!("failed to parse {} as YAML", path.display()))?
         } else {
-            // Env fallback (CI / containers): SIGILO_SECRET_IDS is comma-separated.
-            let ids = std::env::var("SIGILO_SECRET_IDS").unwrap_or_default();
+            // Env fallback (CI / containers): TAPWARDEN_SECRET_IDS is comma-separated.
+            let ids = std::env::var("TAPWARDEN_SECRET_IDS").unwrap_or_default();
             Config {
                 backend: Backend::default(),
                 vaultwarden: None,
@@ -163,7 +163,7 @@ impl Config {
                     .map(|s| s.trim().to_string())
                     .filter(|s| !s.is_empty())
                     .collect(),
-                server_endpoint: std::env::var("SIGILO_SERVER_ENDPOINT").ok(),
+                server_endpoint: std::env::var("TAPWARDEN_SERVER_ENDPOINT").ok(),
                 authorization: Authorization::default(),
             }
         };
@@ -180,7 +180,7 @@ impl Config {
     fn validate(&self) -> Result<()> {
         if self.secret_ids.is_empty() {
             bail!(
-                "no secret_ids configured (set them in the config file or via SIGILO_SECRET_IDS)"
+                "no secret_ids configured (set them in the config file or via TAPWARDEN_SECRET_IDS)"
             );
         }
         if self.backend == Backend::Vaultwarden && self.vaultwarden.is_none() {
@@ -226,21 +226,21 @@ mod tests {
     #[test]
     fn vaultwarden_section_parses_with_default_env_names() {
         let yaml = format!(
-            "{MINIMAL_YAML}backend: vaultwarden\nvaultwarden:\n  server_url: https://vault.example.com\n  email: sigilo@example.com\n"
+            "{MINIMAL_YAML}backend: vaultwarden\nvaultwarden:\n  server_url: https://vault.example.com\n  email: tapwarden@example.com\n"
         );
         let cfg: Config = serde_yaml::from_str(&yaml).unwrap();
         cfg.validate().unwrap();
         let vw = cfg.vaultwarden.unwrap();
         assert_eq!(vw.credentials, CredentialSource::Env, "must default to env");
-        assert_eq!(vw.client_id_env, "SIGILO_VW_CLIENT_ID");
-        assert_eq!(vw.client_secret_env, "SIGILO_VW_CLIENT_SECRET");
-        assert_eq!(vw.master_password_env, "SIGILO_VW_MASTER_PASSWORD");
+        assert_eq!(vw.client_id_env, "TAPWARDEN_VW_CLIENT_ID");
+        assert_eq!(vw.client_secret_env, "TAPWARDEN_VW_CLIENT_SECRET");
+        assert_eq!(vw.master_password_env, "TAPWARDEN_VW_MASTER_PASSWORD");
     }
 
     #[test]
     fn vaultwarden_keychain_credentials_parse() {
         let yaml = format!(
-            "{MINIMAL_YAML}backend: vaultwarden\nvaultwarden:\n  server_url: https://vault.example.com\n  email: sigilo@example.com\n  credentials: keychain\n"
+            "{MINIMAL_YAML}backend: vaultwarden\nvaultwarden:\n  server_url: https://vault.example.com\n  email: tapwarden@example.com\n  credentials: keychain\n"
         );
         let cfg: Config = serde_yaml::from_str(&yaml).unwrap();
         cfg.validate().unwrap();
@@ -254,10 +254,10 @@ mod tests {
     fn missing_env_var_error_names_the_var_and_no_value() {
         let vw = VaultwardenConfig {
             server_url: "https://vault.example.com".into(),
-            email: "sigilo@example.com".into(),
+            email: "tapwarden@example.com".into(),
             credentials: CredentialSource::default(),
             client_id_env: default_vw_client_id_env(),
-            client_secret_env: "SIGILO_TEST_DEFINITELY_UNSET_VW_SECRET".into(),
+            client_secret_env: "TAPWARDEN_TEST_DEFINITELY_UNSET_VW_SECRET".into(),
             master_password_env: default_vw_master_password_env(),
         };
         let err = vw
@@ -267,7 +267,7 @@ mod tests {
         // The error may only name the env var; there is no value to echo and
         // none must ever appear.
         assert!(
-            msg.contains("SIGILO_TEST_DEFINITELY_UNSET_VW_SECRET"),
+            msg.contains("TAPWARDEN_TEST_DEFINITELY_UNSET_VW_SECRET"),
             "error must name the env var: {msg}"
         );
     }
@@ -275,7 +275,7 @@ mod tests {
     #[test]
     fn non_unicode_env_value_never_leaks_into_the_error() {
         use std::os::unix::ffi::OsStrExt;
-        let name = "SIGILO_TEST_NON_UNICODE_SECRET";
+        let name = "TAPWARDEN_TEST_NON_UNICODE_SECRET";
         // Invalid UTF-8 wrapped around a recognizable marker.
         // SAFETY: test-only, single-threaded `cargo test` process; no other
         // thread reads/writes the environment concurrently with this call.
@@ -300,7 +300,7 @@ mod tests {
 
     #[test]
     fn explicit_missing_config_path_is_a_hard_error() {
-        let err = Config::load(Some("/nonexistent/sigilo-config.yaml"))
+        let err = Config::load(Some("/nonexistent/tapwarden-config.yaml"))
             .expect_err("a missing explicit --config path must not fall back to env");
         assert!(
             err.to_string().contains("does not exist"),

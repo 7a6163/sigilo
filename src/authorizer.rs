@@ -22,7 +22,7 @@ pub enum AuthContext<'a> {
 }
 
 /// Gate that must pass before a private key produces a signature.
-/// This is sigilo's core value-add over other Bitwarden SSH agents.
+/// This is tapwarden's core value-add over other Bitwarden SSH agents.
 #[async_trait]
 pub trait Authorizer: Send + Sync {
     async fn approve(&self, ctx: &AuthContext<'_>) -> Result<bool>;
@@ -54,7 +54,7 @@ impl Authorizer for Biometric {
             AndroidText, BiometricStrength, Context, Error, PolicyBuilder, Text, WindowsText,
         };
 
-        // Prompt reads "sigilo is trying to <reason>" on macOS.
+        // Prompt reads "tapwarden is trying to <reason>" on macOS.
         // Only the key comment goes in — never key material or the data to sign.
         let reason = match ctx {
             AuthContext::Sign { key_comment, .. } => {
@@ -75,12 +75,12 @@ impl Authorizer for Biometric {
                 .ok_or_else(|| anyhow!("biometric policy not supported on this platform"))?;
             let text = Text {
                 android: AndroidText {
-                    title: "sigilo",
+                    title: "tapwarden",
                     subtitle: None,
                     description: None,
                 },
                 apple: &reason,
-                windows: WindowsText::new_truncated("sigilo", &reason),
+                windows: WindowsText::new_truncated("tapwarden", &reason),
             };
             match Context::new(()).blocking_authenticate(text, &policy) {
                 Ok(()) => Ok(true),
@@ -338,7 +338,7 @@ mod tests {
     async fn touch_id_prompt_manual() {
         let result = Biometric
             .approve(&AuthContext::Sign {
-                key_comment: "m0-poc@sigilo",
+                key_comment: "m0-poc@tapwarden",
                 data_len: 0,
             })
             .await;

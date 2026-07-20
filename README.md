@@ -1,4 +1,4 @@
-# sigilo
+# tapwarden
 
 An SSH agent that serves keys from **Bitwarden Secrets Manager** or a
 **self-hosted Vaultwarden** and requires a **biometric tap (Touch ID) to
@@ -19,7 +19,7 @@ signing + Homebrew packaging.
 | 1Password agent | 1Password vault | ✅ Touch ID |
 | Bitwarden GUI agent | personal vault | ❌ manual unlock |
 | vault-conductor / bw-agent | SM / secure notes | ❌ silent signing |
-| **sigilo** | **Secrets Manager or Vaultwarden (scoped)** | ✅ Touch ID per signature |
+| **tapwarden** | **Secrets Manager or Vaultwarden (scoped)** | ✅ Touch ID per signature |
 
 Two guarantees the alternatives don't give you together:
 
@@ -35,15 +35,15 @@ Private keys exist in memory only. Nothing is ever written to disk or logged.
 
 - macOS with Touch ID (the biometric prompt works from an unsigned binary —
   verified; Linux support is a future milestone)
-- Rust 1.85+ (`cargo build --release` → `target/release/sigilo`)
+- Rust 1.85+ (`cargo build --release` → `target/release/tapwarden`)
 - One of the two backends below
 
 ## Setup
 
 ```sh
-mkdir -p ~/.config/sigilo
-cp config.yaml.example ~/.config/sigilo/config.yaml
-chmod 600 ~/.config/sigilo/config.yaml
+mkdir -p ~/.config/tapwarden
+cp config.yaml.example ~/.config/tapwarden/config.yaml
+chmod 600 ~/.config/tapwarden/config.yaml
 ```
 
 Keys must be **Ed25519** in **OpenSSH format**
@@ -59,7 +59,7 @@ file — only the *names* of the env vars that hold them.
    and generate an **access token** (`0.xxxx.yyyy:zzzz`, shown once).
 
 ```yaml
-# ~/.config/sigilo/config.yaml
+# ~/.config/tapwarden/config.yaml
 access_token_env: BWS_ACCESS_TOKEN
 secret_ids:
   - <secret uuid>
@@ -75,27 +75,27 @@ export BWS_ACCESS_TOKEN='0.xxxx....'
 
 ### Backend B: Vaultwarden (self-hosted)
 
-Vaultwarden does not implement Secrets Manager (proprietary-licensed), so sigilo
+Vaultwarden does not implement Secrets Manager (proprietary-licensed), so tapwarden
 reads **SSH-key vault items** (cipher type 5) from a **dedicated account**
 instead — least privilege via account scoping.
 
 1. Server: add `EXPERIMENTAL_CLIENT_FEATURE_FLAGS=ssh-key-vault-item` to the
    Vaultwarden environment and restart.
-2. Register a dedicated account (e.g. `sigilo@example.com`) that will hold
+2. Register a dedicated account (e.g. `tapwarden@example.com`) that will hold
    **only** SSH keys.
 3. In its web vault, create an **SSH key** item and paste the OpenSSH private
    key. The item's UUID is in the URL (`itemId=...`) when the item is open.
-4. Run **`sigilo setup`**: it logs in once, obtains the personal API key for
+4. Run **`tapwarden setup`**: it logs in once, obtains the personal API key for
    you, lets you pick the keys to serve, writes the config below, and (by
    default) stores the credentials in the **macOS Keychain** — no env vars
    needed, and every agent read of them is gated by a Touch ID prompt.
 
 ```yaml
-# ~/.config/sigilo/config.yaml (written by `sigilo setup`)
+# ~/.config/tapwarden/config.yaml (written by `tapwarden setup`)
 backend: vaultwarden
 vaultwarden:
   server_url: https://vault.example.com
-  email: sigilo@example.com
+  email: tapwarden@example.com
   credentials: keychain   # keychain (macOS, default in setup) | env (CI / Linux)
 secret_ids:
   - <cipher uuid>
@@ -105,19 +105,19 @@ authorization:
 
 Fallback: answer `n` to the Keychain question (or set `credentials: env`) to
 keep the credentials in env vars instead — the right choice for CI or Linux.
-`sigilo setup` prints the exact lines; they come from Settings → Security →
+`tapwarden setup` prints the exact lines; they come from Settings → Security →
 Keys → **View API key** in the web vault:
 
 ```sh
-export SIGILO_VW_CLIENT_ID='user.xxxxxxxx-....'
-export SIGILO_VW_CLIENT_SECRET='...'
-export SIGILO_VW_MASTER_PASSWORD='...'
+export TAPWARDEN_VW_CLIENT_ID='user.xxxxxxxx-....'
+export TAPWARDEN_VW_CLIENT_SECRET='...'
+export TAPWARDEN_VW_MASTER_PASSWORD='...'
 ```
 
 ## Run
 
 ```sh
-sigilo start    # background LaunchAgent: restarts on crash, starts at login
+tapwarden start    # background LaunchAgent: restarts on crash, starts at login
 ```
 
 `start` prints the socket path. Point SSH at it permanently — no `export`
@@ -126,7 +126,7 @@ needed in any shell:
 ```sh
 # ~/.ssh/config
 Host *
-  IdentityAgent <output of `sigilo socket-path`>
+  IdentityAgent <output of `tapwarden socket-path`>
 ```
 
 Then:
@@ -139,35 +139,35 @@ ssh somehost    # ← Touch ID prompt per signature
 Manage it:
 
 ```sh
-sigilo stop         # stop the agent (the LaunchAgent stays installed)
-sigilo logs         # last 50 lines of ~/Library/Logs/sigilo.log
-sigilo uninstall    # stop the agent and remove the LaunchAgent
-sigilo start --fg   # debug: run in the foreground of the current shell
+tapwarden stop         # stop the agent (the LaunchAgent stays installed)
+tapwarden logs         # last 50 lines of ~/Library/Logs/tapwarden.log
+tapwarden uninstall    # stop the agent and remove the LaunchAgent
+tapwarden start --fg   # debug: run in the foreground of the current shell
 ```
 
 > **Env-var credentials:** launchd does not see your shell environment. If
 > your config resolves credentials from env vars (backend `bws`, or
 > Vaultwarden `credentials: env`), the background agent cannot read them —
-> either run `sigilo start --fg` from a shell that exports them, switch to
-> `credentials: keychain` (`sigilo setup`), or add an `EnvironmentVariables`
-> dict to `~/Library/LaunchAgents/com.sigilo.agent.plist` yourself.
+> either run `tapwarden start --fg` from a shell that exports them, switch to
+> `credentials: keychain` (`tapwarden setup`), or add an `EnvironmentVariables`
+> dict to `~/Library/LaunchAgents/com.tapwarden.agent.plist` yourself.
 
 ### Code signing (optional, recommended)
 
 An unsigned binary has no stable code identity, so the macOS keychain
-re-prompts for access every time you rebuild or upgrade sigilo. A free
+re-prompts for access every time you rebuild or upgrade tapwarden. A free
 self-signed certificate fixes that on your own machine:
 
 1. Keychain Access → Certificate Assistant → **Create a Certificate…**
-   Name: `sigilo-dev`, Identity Type: Self-Signed Root,
+   Name: `tapwarden-dev`, Identity Type: Self-Signed Root,
    Certificate Type: **Code Signing**.
 2. Sign after every build:
 
 ```sh
-codesign -s sigilo-dev --force target/release/sigilo
+codesign -s tapwarden-dev --force target/release/tapwarden
 ```
 
-Re-run `sigilo start` afterwards so the LaunchAgent picks up the signed
+Re-run `tapwarden start` afterwards so the LaunchAgent picks up the signed
 binary. Distribution-grade signing (Developer ID + notarization, required
 for Gatekeeper and OS-enforced keychain ACLs) needs a paid Apple Developer
 account and is planned packaging work.
@@ -195,13 +195,13 @@ Live end-to-end tests are opt-in (they need real credentials):
 
 ```sh
 # Secrets Manager
-BWS_ACCESS_TOKEN=... SIGILO_TEST_SECRET_ID=<uuid> \
+BWS_ACCESS_TOKEN=... TAPWARDEN_TEST_SECRET_ID=<uuid> \
   cargo test fetches_real_secret_from_bws -- --ignored --nocapture
 
 # Vaultwarden
-SIGILO_VW_SERVER=https://vault.example.com SIGILO_VW_EMAIL=sigilo@example.com \
-SIGILO_VW_CLIENT_ID=... SIGILO_VW_CLIENT_SECRET=... SIGILO_VW_MASTER_PASSWORD=... \
-SIGILO_TEST_CIPHER_ID=<uuid> \
+TAPWARDEN_VW_SERVER=https://vault.example.com TAPWARDEN_VW_EMAIL=tapwarden@example.com \
+TAPWARDEN_VW_CLIENT_ID=... TAPWARDEN_VW_CLIENT_SECRET=... TAPWARDEN_VW_MASTER_PASSWORD=... \
+TAPWARDEN_TEST_CIPHER_ID=<uuid> \
   cargo test fetches_real_sshkey_from_vaultwarden -- --ignored --nocapture
 
 # Touch ID (raises a real prompt)
@@ -215,11 +215,11 @@ cargo test touch_id_prompt_manual -- --ignored --nocapture
 - With `credentials: keychain` (Vaultwarden), the backend credentials live in
   the macOS Keychain and **every read is gated by a Touch ID prompt** — a
   recent signature approval (`grace` mode) never unlocks them. An OS-level
-  keychain ACL binding the entries to the sigilo binary requires code signing
+  keychain ACL binding the entries to the tapwarden binary requires code signing
   and is future work.
 - Private keys, tokens, and the master password exist in memory only; error
   messages and logs never contain secret material or server response bodies.
-- The agent socket lives in a per-user 0700 directory (`$XDG_RUNTIME_DIR/sigilo`
+- The agent socket lives in a per-user 0700 directory (`$XDG_RUNTIME_DIR/tapwarden`
   or a uid-suffixed temp dir), validated against symlink planting; umask is
   tightened before bind.
 - Backend crypto (EncString AES-256-CBC + HMAC-SHA256, KDF derivation) mirrors

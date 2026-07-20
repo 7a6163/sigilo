@@ -15,7 +15,7 @@ use config::Config;
 
 #[derive(Parser)]
 #[command(
-    name = "sigilo",
+    name = "tapwarden",
     version,
     about = "SSH agent backed by Bitwarden Secrets Manager with per-use biometric authorization"
 )]

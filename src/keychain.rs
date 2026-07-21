@@ -15,6 +15,9 @@ pub(crate) const VW_CLIENT_ID: &str = "vw_client_id";
 pub(crate) const VW_CLIENT_SECRET: &str = "vw_client_secret";
 pub(crate) const VW_MASTER_PASSWORD: &str = "vw_master_password";
 
+/// Keychain account name for the Bitwarden Secrets Manager access token.
+pub(crate) const BWS_ACCESS_TOKEN: &str = "bws_access_token";
+
 fn entry(account: &str) -> Result<keyring::Entry> {
     keyring::Entry::new(SERVICE, account)
         .map_err(|_| anyhow!("failed to open keychain entry `{account}`"))

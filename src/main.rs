@@ -39,6 +39,10 @@ enum Commands {
     /// Interactive wizard: log in to Vaultwarden once, obtain the personal
     /// API key, pick the SSH keys to serve, and write the config file
     Setup,
+    /// Store the Bitwarden Secrets Manager access token in the macOS Keychain
+    /// (needed for `credentials: keychain`, so the background agent can fetch
+    /// keys without an inherited env var)
+    StoreToken,
     /// Read-only diagnostics: config, credentials, LaunchAgent, socket, SSH
     /// wiring, and Touch ID. Exits non-zero if any check fails.
     Doctor {
@@ -75,6 +79,7 @@ async fn main() -> Result<()> {
             }
         }
         Commands::Setup => setup::run().await?,
+        Commands::StoreToken => setup::store_bws_token()?,
         Commands::Doctor {
             config,
             check_backend,

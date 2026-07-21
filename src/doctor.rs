@@ -140,22 +140,31 @@ fn check_config_perms(r: &mut Report, path: &Path) {
 
 fn check_credentials(r: &mut Report, cfg: &Config) {
     match cfg.backend {
-        Backend::Bws => {
-            if cfg.access_token().is_ok() {
+        Backend::Bws => match cfg.credentials {
+            CredentialSource::Env => {
+                if cfg.access_token().is_ok() {
+                    r.line(
+                        Status::Ok,
+                        "credentials",
+                        &format!("${} is set", cfg.access_token_env),
+                    );
+                } else {
+                    r.line(
+                        Status::Warn,
+                        "credentials",
+                        &format!("${} is not set in this shell", cfg.access_token_env),
+                    );
+                    r.hint("export the token, or run `tapwarden store-token` and set `credentials: keychain` so the background agent can read it");
+                }
+            }
+            CredentialSource::Keychain => {
                 r.line(
                     Status::Ok,
                     "credentials",
-                    &format!("${} is set", cfg.access_token_env),
+                    "BWS token stored in the macOS Keychain (verified end-to-end with --check-backend)",
                 );
-            } else {
-                r.line(
-                    Status::Warn,
-                    "credentials",
-                    &format!("${} is not set in this shell", cfg.access_token_env),
-                );
-                r.hint("export the BWS access token; note launchd does not inherit shell env, so the background agent needs `tapwarden start --fg` from a shell that exports it");
             }
-        }
+        },
         Backend::Vaultwarden => {
             let Some(vw) = cfg.vaultwarden.as_ref() else {
                 return;

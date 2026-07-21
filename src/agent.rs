@@ -14,7 +14,7 @@ use uuid::Uuid;
 use crate::authorizer::{AuthContext, Authorizer, Biometric, Grace};
 use crate::config::{AuthMode, Backend, Config, CredentialSource};
 use crate::runtime_paths;
-use crate::secret_source::{BwsRest, SecretFetcher};
+use crate::secret_source::{BwsCredentials, BwsRest, SecretFetcher};
 use crate::vaultwarden::{VaultwardenFetcher, VwCredentials};
 
 struct LoadedKey {
@@ -179,9 +179,12 @@ fn build_fetcher(
 ) -> Result<Box<dyn SecretFetcher>> {
     match config.backend {
         Backend::Bws => {
-            let token = config.access_token()?;
+            let credentials = match config.credentials {
+                CredentialSource::Env => BwsCredentials::Env(config.access_token()?),
+                CredentialSource::Keychain => BwsCredentials::Keychain,
+            };
             Ok(Box::new(
-                BwsRest::new(&token, config.server_endpoint.as_deref())
+                BwsRest::new(credentials, config.server_endpoint.as_deref(), authorizer)
                     .context("failed to initialize the Bitwarden Secrets Manager client")?,
             ))
         }

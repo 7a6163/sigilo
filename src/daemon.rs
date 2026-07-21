@@ -113,8 +113,7 @@ fn render_plist(exe: &str, log: &str) -> String {
 /// True when fetching keys will need env vars that launchd won't provide.
 fn uses_env_credentials(config: &Config) -> bool {
     match config.backend {
-        // The BWS access token is only ever resolved from an env var.
-        Backend::Bws => true,
+        Backend::Bws => config.credentials == CredentialSource::Env,
         Backend::Vaultwarden => config
             .vaultwarden
             .as_ref()

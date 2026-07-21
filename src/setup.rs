@@ -19,6 +19,7 @@ use crate::config::{CONFIG_REL, CredentialSource};
 use crate::keychain;
 use crate::secret_source::{
     EncString, MAX_SYNC_RESPONSE_BYTES, SymKey, http_client, json_capped, json_capped_limit,
+    validate_access_token,
 };
 use crate::vaultwarden::{
     CIPHER_TYPE_SSH_KEY, CLIENT_VERSION, CLIENT_VERSION_HEADER, DEVICE_IDENTIFIER, DEVICE_NAME,
@@ -108,6 +109,24 @@ struct SyncCipher {
 enum LoginOutcome {
     Success(TokenSuccess),
     TwoFactorRequired(Vec<String>),
+}
+
+/// Store the Bitwarden Secrets Manager access token in the macOS Keychain so
+/// the background LaunchAgent can fetch keys without an inherited env var.
+/// Enable it by setting `credentials: keychain` in the config.
+pub fn store_bws_token() -> Result<()> {
+    let token = rpassword::prompt_password("BWS access token (hidden): ")
+        .context("failed to read the access token")?;
+    let token = token.trim();
+    if token.is_empty() {
+        bail!("no token entered");
+    }
+    validate_access_token(token)
+        .context("that does not look like a BWS access token (expected 0.<uuid>.<uuid>:<key>)")?;
+    keychain::store(keychain::BWS_ACCESS_TOKEN, token)?;
+    println!("Stored the access token in the macOS Keychain (service \"tapwarden\").");
+    println!("Set `credentials: keychain` in your config so tapwarden reads it from there.");
+    Ok(())
 }
 
 pub async fn run() -> Result<()> {

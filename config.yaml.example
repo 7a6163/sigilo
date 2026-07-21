@@ -6,6 +6,13 @@
 # backend: bws
 access_token_env: BWS_ACCESS_TOKEN
 
+# Where the BWS access token comes from: env (default) | keychain.
+# env      = read from the var named by access_token_env (CI / --fg use).
+# keychain = read from the macOS Keychain (store it with `tapwarden store-token`).
+#            Use this for the background agent: launchd does not inherit your
+#            shell env, so an env-sourced token can't reach it.
+# credentials: env
+
 # UUIDs of the secrets, each holding one OpenSSH private key
 # (BWS secret UUIDs, or Vaultwarden cipher UUIDs when backend: vaultwarden).
 secret_ids:

@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **BWS access token in the macOS Keychain**: the Bitwarden Secrets Manager
+  backend now supports `credentials: keychain` (mirroring the Vaultwarden
+  backend). Store the token with the new `tapwarden store-token` command; the
+  agent reads it lazily on first use, behind the Touch ID gate. This makes the
+  background LaunchAgent work with BWS, which previously could only source the
+  token from an env var that launchd does not provide. `credentials: env`
+  (the default) is unchanged.
 - **`tapwarden doctor`**: read-only diagnostics that check the config (load,
   validity, `0600` perms), backend credentials presence, Touch ID
   availability, the LaunchAgent load state, the agent socket (present and

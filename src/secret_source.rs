@@ -8,8 +8,12 @@ use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
 use serde::Deserialize;
 use sha2::Sha256;
+use std::sync::Arc;
 use std::time::Duration;
 use uuid::Uuid;
+
+use crate::authorizer::{AuthContext, Authorizer};
+use crate::keychain;
 
 /// Bound every backend request: a stalled connection must never wedge the
 /// agent (the key cache mutex is held across fetches, so an unbounded request
@@ -252,6 +256,10 @@ pub struct BwsRest {
     identity_url: String,
     api_url: String,
     http: reqwest::Client,
+    /// Gate in front of a keychain-sourced token read; unused for env tokens.
+    /// `Grace` never applies its window to `AuthContext::UnlockCredentials`,
+    /// so a keychain read always prompts.
+    gate: Arc<dyn Authorizer>,
     /// Lazily-established session, shared across `get` calls. The parsed
     /// access token lives only in `Pending` and is dropped from memory on the
     /// first successful authenticate.
@@ -260,11 +268,32 @@ pub struct BwsRest {
     state: tokio::sync::Mutex<AuthState>,
 }
 
+/// Where the BWS access token comes from, resolved on the first fetch.
+pub enum BwsCredentials {
+    /// Already resolved from the configured env var.
+    Env(String),
+    /// Read from the macOS Keychain on first use, behind a Touch ID prompt.
+    Keychain,
+}
+
+/// Validate an access token's format without retaining it — used by
+/// `tapwarden store-token` to reject a typo before writing the Keychain.
+pub(crate) fn validate_access_token(token: &str) -> Result<()> {
+    AccessToken::parse(token).map(|_| ())
+}
+
 enum AuthState {
-    /// Credentials held only until the first successful login; a failed
-    /// attempt leaves them in place so a later `get` can retry.
-    Pending(AccessToken),
+    /// Held until the first successful login; a failed attempt (or a denied
+    /// keychain unlock) leaves it in place so a later `get` can retry.
+    Pending(PendingToken),
     Ready(Session),
+}
+
+/// An env token is parsed at construction (fail fast); a keychain token is
+/// read and parsed lazily inside the gated first fetch.
+enum PendingToken {
+    Parsed(AccessToken),
+    Keychain,
 }
 
 // No Debug impl on purpose: the struct holds the client secret and key material.
@@ -288,14 +317,41 @@ fn service_urls(server_endpoint: Option<&str>) -> (String, String) {
 }
 
 impl BwsRest {
-    pub fn new(access_token: &str, server_endpoint: Option<&str>) -> Result<Self> {
+    pub fn new(
+        credentials: BwsCredentials,
+        server_endpoint: Option<&str>,
+        gate: Arc<dyn Authorizer>,
+    ) -> Result<Self> {
         let (identity_url, api_url) = service_urls(server_endpoint);
+        let pending = match credentials {
+            BwsCredentials::Env(token) => PendingToken::Parsed(AccessToken::parse(&token)?),
+            BwsCredentials::Keychain => PendingToken::Keychain,
+        };
         Ok(Self {
             identity_url,
             api_url,
             http: http_client()?,
-            state: tokio::sync::Mutex::new(AuthState::Pending(AccessToken::parse(access_token)?)),
+            gate,
+            state: tokio::sync::Mutex::new(AuthState::Pending(pending)),
         })
+    }
+
+    /// Read and parse a keychain-stored token. The Touch ID gate must approve
+    /// BEFORE anything is read from the Keychain.
+    async fn resolve_keychain_token(&self) -> Result<AccessToken> {
+        let ctx = AuthContext::UnlockCredentials {
+            reason: "unlock the Bitwarden Secrets Manager access token",
+        };
+        let approved = self
+            .gate
+            .approve(&ctx)
+            .await
+            .context("failed to evaluate the credential-unlock authorization")?;
+        if !approved {
+            bail!("credential unlock denied — the keychain was not read");
+        }
+        let token = keychain::read(keychain::BWS_ACCESS_TOKEN)?;
+        AccessToken::parse(&token)
     }
 
     /// `connect/token` exchange + org-key decryption. HTTP error bodies are
@@ -358,8 +414,14 @@ impl BwsRest {
 impl SecretFetcher for BwsRest {
     async fn get(&self, id: Uuid) -> Result<SecretData> {
         let mut state = self.state.lock().await;
-        if let AuthState::Pending(token) = &*state {
-            let session = self.authenticate(token).await?;
+        if let AuthState::Pending(pending) = &*state {
+            let session = match pending {
+                PendingToken::Parsed(token) => self.authenticate(token).await?,
+                PendingToken::Keychain => {
+                    let token = self.resolve_keychain_token().await?;
+                    self.authenticate(&token).await?
+                }
+            };
             // Success: replacing the state drops the access token from memory.
             *state = AuthState::Ready(session);
         }
@@ -550,7 +612,12 @@ mod tests {
             .parse()
             .expect("TAPWARDEN_TEST_SECRET_ID is not a UUID");
         let endpoint = std::env::var("TAPWARDEN_SERVER_ENDPOINT").ok();
-        let fetcher = BwsRest::new(&token, endpoint.as_deref()).unwrap();
+        let fetcher = BwsRest::new(
+            BwsCredentials::Env(token),
+            endpoint.as_deref(),
+            Arc::new(crate::authorizer::AlwaysAllow),
+        )
+        .unwrap();
         let secret = fetcher.get(id).await.unwrap();
         assert!(!secret.name.is_empty());
         assert!(!secret.openssh_private_key.is_empty());

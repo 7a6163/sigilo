@@ -13,6 +13,13 @@ pub struct Config {
     /// Name of the env var holding the BWS access token (never store the token in the file).
     #[serde(default = "default_token_env")]
     pub access_token_env: String,
+    /// Where the BWS access token comes from: `env` (default, read from the
+    /// var named by `access_token_env`) or `keychain` (stored in the macOS
+    /// Keychain by `tapwarden store-token`, so the background LaunchAgent can
+    /// fetch keys without inheriting shell env). Unused when `backend:
+    /// vaultwarden` (that backend has its own `vaultwarden.credentials`).
+    #[serde(default)]
+    pub credentials: CredentialSource,
     /// UUIDs of the secrets that each hold one OpenSSH private key
     /// (BWS secret UUIDs or Vaultwarden cipher UUIDs, per `backend`).
     pub secret_ids: Vec<String>,
@@ -158,6 +165,7 @@ impl Config {
                 backend: Backend::default(),
                 vaultwarden: None,
                 access_token_env: default_token_env(),
+                credentials: CredentialSource::default(),
                 secret_ids: ids
                     .split(',')
                     .map(|s| s.trim().to_string())

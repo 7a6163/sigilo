@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0] - 2026-07-21
 
 ### Added
 
@@ -32,6 +32,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `[ ok ]`/`[warn]`/`[fail]` checklist and exits non-zero on any failure.
   `--check-backend` additionally fetches every configured key from the backend
   end-to-end (needs network + credentials; keychain creds may prompt Touch ID).
+
+### Changed
+
+- MSRV bumped from 1.85.0 to 1.88.0 (the `time` security fix requires 1.88).
+
+### Fixed
+
+- **RUSTSEC-2026-0009** (DoS via stack exhaustion in `time`): upgraded
+  `time` to 0.3.47. Also updated `spin` 0.9.8 → 0.9.9 (yanked).
 
 ## [0.1.4] - 2026-07-20
 

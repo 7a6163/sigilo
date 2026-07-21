@@ -36,7 +36,7 @@ Private keys exist in memory only. Nothing is ever written to disk or logged.
 
 - macOS with Touch ID (the biometric prompt works from an unsigned binary —
   verified; Linux support is a future milestone)
-- Rust 1.85+ (`cargo build --release` → `target/release/tapwarden`)
+- Rust 1.88+ (`cargo build --release` → `target/release/tapwarden`)
 - One of the two backends below
 
 ## Setup

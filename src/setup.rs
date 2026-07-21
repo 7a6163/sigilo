@@ -331,10 +331,10 @@ async fn login_attempt(
     }
     // The error body is parsed only to detect the 2FA case; it is never
     // echoed (vaultwarden error bodies can contain request parameters).
-    if let Ok(err) = json_capped::<TwoFactorError>(response).await {
-        if !err.two_factor_providers.is_empty() {
-            return Ok(LoginOutcome::TwoFactorRequired(err.two_factor_providers));
-        }
+    if let Ok(err) = json_capped::<TwoFactorError>(response).await
+        && !err.two_factor_providers.is_empty()
+    {
+        return Ok(LoginOutcome::TwoFactorRequired(err.two_factor_providers));
     }
     bail!(
         "login failed: HTTP {status} (wrong email/master password or two-factor code; if the \

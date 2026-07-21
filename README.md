@@ -7,10 +7,11 @@ a headless / least-privilege Bitwarden backend.
 
 Status: **working agent** — Touch ID verified from an unsigned binary, both
 backends implemented against the official SDK's protocol and test vectors,
-security-reviewed; Vaultwarden credentials can live in the macOS Keychain
-behind Touch ID; runs in the background as a LaunchAgent
-(`start`/`stop`/`logs`/`uninstall`). Roadmap: BWS token in the OS keystore,
-signing + Homebrew packaging.
+security-reviewed; the BWS access token and Vaultwarden credentials can live in
+the macOS Keychain behind Touch ID; a YubiKey/FIDO2 touch works as an
+alternative presence factor; runs in the background as a LaunchAgent
+(`start`/`stop`/`logs`/`uninstall`), with a `doctor` diagnostics command.
+Roadmap: Developer ID signing + notarization, Homebrew packaging, Linux support.
 
 ## Why
 
@@ -61,6 +62,7 @@ file — only the *names* of the env vars that hold them.
 ```yaml
 # ~/.config/tapwarden/config.yaml
 access_token_env: BWS_ACCESS_TOKEN
+credentials: env                    # env (default) | keychain
 secret_ids:
   - <secret uuid>
 # server_endpoint: bitwarden.eu     # optional; cloud EU or self-hosted host
@@ -72,6 +74,17 @@ authorization:
 ```sh
 export BWS_ACCESS_TOKEN='0.xxxx....'
 ```
+
+For the **background agent**, prefer the Keychain over an env var (launchd does
+not inherit your shell environment). Store the token once and set
+`credentials: keychain`:
+
+```sh
+tapwarden store-token   # paste the access token; it is verified and saved to the Keychain
+```
+
+The token is then read lazily on first use, behind the same Touch ID (or
+YubiKey) gate as signing.
 
 ### Backend B: Vaultwarden (self-hosted)
 
@@ -139,6 +152,7 @@ ssh somehost    # ← Touch ID prompt per signature
 Manage it:
 
 ```sh
+tapwarden doctor       # read-only diagnostics; --check-backend also fetches keys
 tapwarden stop         # stop the agent (the LaunchAgent stays installed)
 tapwarden logs         # last 50 lines of ~/Library/Logs/tapwarden.log
 tapwarden uninstall    # stop the agent and remove the LaunchAgent
@@ -146,10 +160,11 @@ tapwarden start --fg   # debug: run in the foreground of the current shell
 ```
 
 > **Env-var credentials:** launchd does not see your shell environment. If
-> your config resolves credentials from env vars (backend `bws`, or
-> Vaultwarden `credentials: env`), the background agent cannot read them —
-> either run `tapwarden start --fg` from a shell that exports them, switch to
-> `credentials: keychain` (`tapwarden setup`), or add an `EnvironmentVariables`
+> your config resolves credentials from env vars (backend `bws` with
+> `credentials: env`, or Vaultwarden `credentials: env`), the background agent
+> cannot read them — either run `tapwarden start --fg` from a shell that
+> exports them, switch to `credentials: keychain` (`tapwarden store-token` for
+> BWS, `tapwarden setup` for Vaultwarden), or add an `EnvironmentVariables`
 > dict to `~/Library/LaunchAgents/com.tapwarden.agent.plist` yourself.
 
 ### Code signing (optional, recommended)
@@ -223,6 +238,15 @@ the `credential_id` is just a handle, useless without the physical key; connect
 exactly one FIDO2 key when registering or signing.
 
 ## Verifying your setup
+
+Fastest check — `tapwarden doctor` inspects the config, credentials, Touch
+ID/YubiKey availability, the LaunchAgent, the socket, and the SSH wiring, and
+exits non-zero on any failure:
+
+```sh
+tapwarden doctor                  # local, read-only checks
+tapwarden doctor --check-backend  # also fetches every configured key end-to-end
+```
 
 Live end-to-end tests are opt-in (they need real credentials):
 

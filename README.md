@@ -1,9 +1,9 @@
 # tapwarden
 
 An SSH agent that serves keys from **Bitwarden Secrets Manager** or a
-**self-hosted Vaultwarden** and requires a **biometric tap (Touch ID) to
-authorize every signature** — 1Password's per-use approval UX, on a headless /
-least-privilege Bitwarden backend.
+**self-hosted Vaultwarden** and requires a **physical tap — Touch ID or a
+YubiKey — to authorize every signature** — 1Password's per-use approval UX, on
+a headless / least-privilege Bitwarden backend.
 
 Status: **working agent** — Touch ID verified from an unsigned binary, both
 backends implemented against the official SDK's protocol and test vectors,
@@ -188,6 +188,39 @@ Each `git commit` then raises one Touch ID prompt.
 - `grace`: after an approval, the **same key** signs without a prompt for
   `grace_seconds` (measured against both monotonic and wall-clock time, so the
   window does not survive a lid-close). Other keys still prompt.
+
+### Presence factor: Touch ID or YubiKey
+
+By default every signature is gated by Touch ID (`factor: touch_id`). To use a
+**FIDO2 security key (e.g. YubiKey)** instead — handy on a Mac without Touch ID,
+and it gates credential unlocks with the same touch — register the key once and
+switch the factor:
+
+```sh
+tapwarden register-yubikey   # insert the key, enter its PIN if it has one, then touch
+```
+
+It prints a `credential_id`; add it to the config:
+
+```yaml
+authorization:
+  mode: per_use
+  factor: yubikey            # touch_id (default) | yubikey
+  yubikey:
+    credential_id: <base64 printed by register-yubikey>
+```
+
+Each `ssh` signature (and every keychain credential unlock) then needs a
+physical touch of the key instead of Touch ID. Confirm the wiring with:
+
+```sh
+tapwarden doctor             # reports whether a FIDO2 key is connected
+ssh somehost                 # ← touch your YubiKey to sign
+```
+
+Notes: the key's **PIN is only needed at registration** (touch-only afterwards);
+the `credential_id` is just a handle, useless without the physical key; connect
+exactly one FIDO2 key when registering or signing.
 
 ## Verifying your setup
 
